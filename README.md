@@ -3,7 +3,9 @@
 **一键删注释** - 代码注释删除工具
 
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org/)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-lightgrey)](https://github.com/)
+[![CI](https://github.com/Fldicoahkiin/fuck-comment/workflows/Build%20and%20Release/badge.svg)](https://github.com/Fldicoahkiin/fuck-comment/actions)
+[![Release](https://img.shields.io/github/v/release/Fldicoahkiin/fuck-comment?include_prereleases)](https://github.com/Fldicoahkiin/fuck-comment/releases)
+[![Platform](https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-lightgrey)](https://github.com/Fldicoahkiin/fuck-comment/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## 📖 简介
