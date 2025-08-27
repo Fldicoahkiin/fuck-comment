@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# Build artifacts
+dist/
+fuck-comment
+*.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test files
+*_test.go
+test_*
+
+# CI/CD
+.github/
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore

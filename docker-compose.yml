@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  fuck-comment:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: "1.0.0"
+        BUILD_TIME: "2024-01-01_00:00:00"
+        GIT_COMMIT: "local"
+    image: fuck-comment:latest
+    container_name: fuck-comment
+    volumes:
+      # 挂载当前目录到容器中进行处理
+      - ./:/workspace
+    working_dir: /workspace
+    # 默认显示帮助信息
+    command: ["--help"]
+    
+  # 用于处理指定目录的服务
+  fuck-comment-process:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VERSION: "1.0.0"
+        BUILD_TIME: "2024-01-01_00:00:00"
+        GIT_COMMIT: "local"
+    image: fuck-comment:latest
+    volumes:
+      # 挂载要处理的目录
+      - ${TARGET_DIR:-./}:/workspace
+    working_dir: /workspace
+    # 使用环境变量控制参数
+    command: ${FUCK_COMMENT_ARGS:---verbose}
+    environment:
+      - TARGET_DIR=${TARGET_DIR:-./}
