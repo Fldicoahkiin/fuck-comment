@@ -80,16 +80,6 @@ jobs:
         fi
         go build -ldflags "-X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" -o ${BINARY_NAME} .
 
-    - name: Create archives
-      run: |
-        BINARY_NAME=fuck-comment-${{ matrix.goos }}-${{ matrix.goarch }}
-        if [ "${{ matrix.goos }}" = "windows" ]; then
-          BINARY_NAME=${BINARY_NAME}.exe
-          zip ${BINARY_NAME%.exe}.zip ${BINARY_NAME}
-        else
-          tar -czf ${BINARY_NAME}.tar.gz ${BINARY_NAME}
-        fi
-
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
