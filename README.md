@@ -5,7 +5,6 @@
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![CI](https://github.com/Fldicoahkiin/fuck-comment/workflows/Build%20and%20Release/badge.svg)](https://github.com/Fldicoahkiin/fuck-comment/actions)
 [![Release](https://img.shields.io/github/v/release/Fldicoahkiin/fuck-comment?include_prereleases)](https://github.com/Fldicoahkiin/fuck-comment/releases)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20|%20macOS%20|%20Linux-lightgrey)](https://github.com/Fldicoahkiin/fuck-comment/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## 📖 简介
@@ -38,18 +37,27 @@
 
 从 [Releases](https://github.com/Fldicoahkiin/fuck-comment/releases) 页面下载对应平台的可执行文件：
 
+| 平台 | 架构 | 文件名 | 下载链接 |
+|------|------|--------|----------|
+| **Windows** | x64 | `fuck-comment-windows-amd64.exe` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-windows-amd64.exe) |
+| Windows | x86 | `fuck-comment-windows-386.exe` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-windows-386.exe) |
+| Windows | ARM64 | `fuck-comment-windows-arm64.exe` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-windows-arm64.exe) |
+| **macOS** | Intel | `fuck-comment-darwin-amd64` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-darwin-amd64) |
+| **macOS** | Apple Silicon | `fuck-comment-darwin-arm64` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-darwin-arm64) |
+| **Linux** | x64 | `fuck-comment-linux-amd64` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-linux-amd64) |
+| Linux | x86 | `fuck-comment-linux-386` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-linux-386) |
+| Linux | ARM64 | `fuck-comment-linux-arm64` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-linux-arm64) |
+| Linux | ARM | `fuck-comment-linux-arm` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-linux-arm) |
+
+**快速安装命令**：
 ```bash
-# macOS (Intel)
-wget https://github.com/Fldicoahkiin/fuck-comment/releases/download/v1.0.0/fuck-comment-darwin-amd64
+# macOS/Linux - 下载并设置执行权限
+curl -L -o fuck-comment https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/')
+chmod +x fuck-comment
 
-# macOS (Apple Silicon)
-wget https://github.com/Fldicoahkiin/fuck-comment/releases/download/v1.0.0/fuck-comment-darwin-arm64
-
-# Linux (x64)
-wget https://github.com/Fldicoahkiin/fuck-comment/releases/download/v1.0.0/fuck-comment-linux-amd64
-
-# Windows (x64)
-# 下载 fuck-comment-windows-amd64.exe
+# 或者使用wget
+wget -O fuck-comment https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/')
+chmod +x fuck-comment
 ```
 
 #### 方式二：源码编译

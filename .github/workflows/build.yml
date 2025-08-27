@@ -120,6 +120,13 @@ jobs:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
     
+    - name: Generate checksums
+      run: |
+        find . -name "fuck-comment-*" -type f | while read file; do
+          echo "$(sha256sum "$file" | cut -d' ' -f1)  $(basename "$file")" >> checksums.txt
+        done
+        cat checksums.txt
+    
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
@@ -127,8 +134,62 @@ jobs:
           **/fuck-comment-*
           **/*.zip
           **/*.tar.gz
+          checksums.txt
         draft: false
         prerelease: false
         generate_release_notes: true
+        body: |
+          # 🚀 fuck-comment ${{ github.ref_name }}
+          
+          **一键删注释** - 高效的跨平台代码注释删除工具
+          
+          ## 📦 下载文件
+          
+          | 平台 | 架构 | 文件名 |
+          |------|------|--------|
+          | **Windows** | x64 | `fuck-comment-windows-amd64.exe` |
+          | Windows | x86 | `fuck-comment-windows-386.exe` |
+          | Windows | ARM64 | `fuck-comment-windows-arm64.exe` |
+          | **macOS** | Intel | `fuck-comment-darwin-amd64` |
+          | **macOS** | Apple Silicon | `fuck-comment-darwin-arm64` |
+          | **Linux** | x64 | `fuck-comment-linux-amd64` |
+          | Linux | x86 | `fuck-comment-linux-386` |
+          | Linux | ARM64 | `fuck-comment-linux-arm64` |
+          | Linux | ARM | `fuck-comment-linux-arm` |
+          
+          ## 🔍 文件校验
+          
+          SHA256校验和已包含在 `checksums.txt` 文件中。下载后请验证文件完整性：
+          
+          ```bash
+          # macOS/Linux
+          sha256sum -c checksums.txt
+          
+          # Windows (PowerShell)
+          Get-FileHash *.exe -Algorithm SHA256
+          ```
+          
+          ## 🚀 快速安装
+          
+          ```bash
+          # 自动检测平台并下载
+          curl -L -o fuck-comment https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/')
+          chmod +x fuck-comment
+          ```
+          
+          ## 📖 使用方法
+          
+          ```bash
+          # 删除当前目录所有支持文件的注释
+          ./fuck-comment
+          
+          # 显示详细处理信息
+          ./fuck-comment -v
+          
+          # 删除指定文件的注释
+          ./fuck-comment -f main.go
+          ```
+          
+          **完整文档**: https://github.com/Fldicoahkiin/fuck-comment#readme
         token: ${{ secrets.GITHUB_TOKEN }}
 
