@@ -296,3 +296,6 @@ go test -v -bench=.
 - [Cobra](https://github.com/spf13/cobra) - 强大的CLI框架
 - [Go](https://golang.org/) - 优秀的编程语言
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Fldicoahkiin/fuck-comment&type=Date)](https://www.star-history.com/#Fldicoahkiin/fuck-comment&Date)
