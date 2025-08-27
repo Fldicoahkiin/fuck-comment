@@ -40,75 +40,62 @@ jobs:
       run: go vet ./...
 
   build:
+    if: startsWith(github.ref, 'refs/tags/')
     needs: test
     runs-on: ubuntu-latest
     strategy:
       matrix:
         goos: [linux, windows, darwin]
-        goarch: [amd64, arm64]
-        include:
-          - goos: windows
+        goarch: [amd64, 386, arm64, arm]
+        exclude:
+          - goos: darwin
             goarch: 386
-          - goos: linux
+          - goos: darwin
             goarch: arm
-          - goos: linux
-            goarch: 386
-    
+          - goos: windows
+            goarch: arm
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
         go-version: '1.21'
-    
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-    
+
     - name: Download dependencies
       run: go mod download
-    
+
     - name: Build binary
       env:
         GOOS: ${{ matrix.goos }}
         GOARCH: ${{ matrix.goarch }}
       run: |
         VERSION=${GITHUB_REF#refs/tags/}
-        if [[ "$VERSION" == "refs/heads/"* ]]; then
-          VERSION="dev-${GITHUB_SHA::8}"
+        BUILD_TIME=$(date -u +"%Y-%m-%d_%H:%M:%S")
+        GIT_COMMIT=$(git rev-parse --short HEAD)
+        BINARY_NAME=fuck-comment-${{ matrix.goos }}-${{ matrix.goarch }}
+        if [ "${{ matrix.goos }}" = "windows" ]; then
+          BINARY_NAME=${BINARY_NAME}.exe
         fi
-        
-        BUILD_TIME=$(date -u +%Y-%m-%d_%H:%M:%S)
-        GIT_COMMIT=${GITHUB_SHA::8}
-        
-        if [ "$GOOS" = "windows" ]; then
-          BINARY_NAME="fuck-comment-${GOOS}-${GOARCH}.exe"
+        go build -ldflags "-X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" -o ${BINARY_NAME} .
+
+    - name: Create archives
+      run: |
+        BINARY_NAME=fuck-comment-${{ matrix.goos }}-${{ matrix.goarch }}
+        if [ "${{ matrix.goos }}" = "windows" ]; then
+          BINARY_NAME=${BINARY_NAME}.exe
+          zip ${BINARY_NAME%.exe}.zip ${BINARY_NAME}
         else
-          BINARY_NAME="fuck-comment-${GOOS}-${GOARCH}"
+          tar -czf ${BINARY_NAME}.tar.gz ${BINARY_NAME}
         fi
-        
-        go build -ldflags "-X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" -o $BINARY_NAME .
-        
-        # 创建压缩包
-        if [ "$GOOS" = "windows" ]; then
-          zip "${BINARY_NAME%.exe}.zip" $BINARY_NAME
-        else
-          tar -czf "${BINARY_NAME}.tar.gz" $BINARY_NAME
-        fi
-    
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: fuck-comment-${{ matrix.goos }}-${{ matrix.goarch }}
+        name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
         path: |
-          fuck-comment-*
-          *.zip
-          *.tar.gz
+          fuck-comment-${{ matrix.goos }}-${{ matrix.goarch }}*
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
@@ -119,21 +106,27 @@ jobs:
     
     - name: Download all artifacts
       uses: actions/download-artifact@v4
+      with:
+        merge-multiple: true
+    
+    - name: List downloaded files
+      run: |
+        echo "Downloaded files:"
+        find . -name "fuck-comment-*" -type f
     
     - name: Generate checksums
       run: |
         find . -name "fuck-comment-*" -type f | while read file; do
           echo "$(sha256sum "$file" | cut -d' ' -f1)  $(basename "$file")" >> checksums.txt
         done
+        echo "Generated checksums:"
         cat checksums.txt
     
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          **/fuck-comment-*
-          **/*.zip
-          **/*.tar.gz
+          fuck-comment-*
           checksums.txt
         draft: false
         prerelease: false
