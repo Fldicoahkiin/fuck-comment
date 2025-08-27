@@ -16,12 +16,11 @@ func TestRemoveComments(t *testing.T) {
 		{
 			name: "单行注释",
 			input: `package main
-// 这是注释
+// 测试注释
 func main() {
 	fmt.Println("Hello") // 行尾注释
 }`,
 			expected: `package main
-
 func main() {
 	fmt.Println("Hello")
 }`,
@@ -34,7 +33,6 @@ func main() {
 	/* 另一个注释 */ fmt.Println("Hello")
 }`,
 			expected: `package main
-
 func main() {
 	 fmt.Println("Hello")
 }`,
@@ -50,10 +48,6 @@ func main() {
 	fmt.Println("Hello")
 }`,
 			expected: `package main
-
-
-
-
 func main() {
 	fmt.Println("Hello")
 }`,
@@ -76,18 +70,16 @@ func main() {
 		{
 			name: "混合注释",
 			input: `package main
-// 顶部注释
+// 文件头注释
+/* 块注释 */
 func main() {
-	/* 块注释开始
-	   继续块注释 */
-	fmt.Println("Hello") // 行注释
-	/* 单行块 */ fmt.Println("World")
+	// 函数内注释
+	/* 内联块注释 */
+	fmt.Println("Hello") // 行尾注释
+	 fmt.Println("World")
 }`,
 			expected: `package main
-
 func main() {
-
-
 	fmt.Println("Hello")
 	 fmt.Println("World")
 }`,
@@ -225,7 +217,6 @@ func main() {
 	}
 	
 	expected := `package main
-
 func main() {
 	fmt.Println("Hello")
 }`

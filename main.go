@@ -50,12 +50,14 @@ var (
 
 // removeComments 删除代码中的注释，支持 // 和 /* */ 格式
 // 智能处理字符串字面量，不会删除字符串内的注释符号
+// 自动清理删除注释后产生的空行
 func removeComments(content string) string {
 	lines := strings.Split(content, "\n")
 	var result []string
 	inBlockComment := false
 
 	for _, line := range lines {
+		originalLine := line
 		processedLine := line
 		
 		if inBlockComment {
@@ -64,8 +66,8 @@ func removeComments(content string) string {
 				processedLine = line[endIndex+2:]
 				inBlockComment = false
 			} else {
-				// 整行都在块注释中
-				processedLine = ""
+				// 整行都在块注释中，跳过这一行
+				continue
 			}
 		}
 		
@@ -101,6 +103,18 @@ func removeComments(content string) string {
 		
 		// 移除行尾空白
 		processedLine = strings.TrimRight(processedLine, " \t")
+		
+		// 如果处理后的行只包含空白字符，且原行包含注释，则跳过该行
+		if strings.TrimSpace(processedLine) == "" && strings.TrimSpace(originalLine) != "" {
+			// 检查原行是否主要是注释
+			trimmedOriginal := strings.TrimSpace(originalLine)
+			if strings.HasPrefix(trimmedOriginal, "//") || 
+			   strings.HasPrefix(trimmedOriginal, "/*") || 
+			   strings.Contains(trimmedOriginal, "*/") {
+				continue
+			}
+		}
+		
 		result = append(result, processedLine)
 	}
 	
