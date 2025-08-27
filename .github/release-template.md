@@ -32,7 +32,34 @@ Get-FileHash fuck-comment-*.exe -Algorithm SHA256
 
 ## 🔧 支持的语言
 
-支持 Go、C/C++、Java、JavaScript、TypeScript、C#、PHP、Swift、Kotlin、Rust、Scala、Dart、Objective-C 等语言的 `//` 和 `/* */` 注释格式。
+支持 **100+** 种编程语言和文件类型：
+
+### 编程语言
+- **C/C++ 系列**: C, C++, C#, Objective-C
+- **Java 系列**: Java, Scala, Kotlin, Groovy  
+- **JavaScript 系列**: JavaScript, TypeScript, JSX, TSX, CoffeeScript
+- **系统编程**: Go, Rust, Swift, Dart, Zig, D
+- **脚本语言**: Python, Ruby, PHP, Perl, Lua, Tcl
+- **Shell**: Bash, Zsh, Fish, PowerShell, Batch
+- **函数式**: Haskell, Elm, OCaml, F#, Clojure, Lisp, Scheme
+- **数据科学**: R, Julia, MATLAB
+- **其他**: Fortran, Pascal, Ada, Erlang, Elixir, Nim, Crystal
+
+### 标记语言
+- **Web**: HTML, XML, SVG
+- **样式**: CSS, SCSS, Sass, Less, Stylus  
+- **文档**: Markdown, LaTeX, reStructuredText, AsciiDoc
+- **配置**: YAML, TOML, INI, JSON
+
+### 注释格式
+- `//` 行注释 (C/C++, Go, Java, JavaScript等)
+- `/* */` 块注释 (C/C++, Go, Java, JavaScript等)  
+- `#` 井号注释 (Python, Shell, YAML等)
+- `--` 双破折号注释 (SQL, Haskell等)
+- `;` 分号注释 (Assembly, Lisp等)
+- `%` 百分号注释 (LaTeX, MATLAB等)
+- `!` 感叹号注释 (Fortran等)
+- `<!-- -->` HTML注释 (HTML, XML等)
 
 ## ⚠️ 重要提醒
 

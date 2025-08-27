@@ -1,66 +1,115 @@
 # fuck-comment
 
-**一键删注释** - 代码注释删除工具
+一键删除代码注释的命令行工具
 
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![CI](https://github.com/Fldicoahkiin/fuck-comment/workflows/Build%20and%20Release/badge.svg)](https://github.com/Fldicoahkiin/fuck-comment/actions)
 [![Release](https://img.shields.io/github/v/release/Fldicoahkiin/fuck-comment?include_prereleases)](https://github.com/Fldicoahkiin/fuck-comment/releases)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## 📖 简介
+## 简介
 
-`fuck-comment` 是一个高效的跨平台CLI工具，专门用于删除代码文件中的所有注释。支持 `//` 和 `/* */` 两种注释格式，适用于多种主流编程语言。
+fuck-comment 是一个跨平台命令行工具，用于删除代码文件中的注释。支持8种注释格式，覆盖100+种编程语言。
 
 ### 🔧 支持的编程语言
 
-| 语言 | 扩展名 | 注释格式 |
-|------|--------|----------|
-| Go | `.go` | `//` `/* */` |
-| C/C++ | `.c` `.cpp` `.cc` `.cxx` `.h` `.hpp` | `//` `/* */` |
-| Java | `.java` | `//` `/* */` |
-| JavaScript | `.js` `.jsx` | `//` `/* */` |
-| TypeScript | `.ts` `.tsx` | `//` `/* */` |
-| C# | `.cs` | `//` `/* */` |
-| PHP | `.php` | `//` `/* */` |
-| Swift | `.swift` | `//` `/* */` |
-| Kotlin | `.kt` | `//` `/* */` |
-| Rust | `.rs` | `//` `/* */` |
-| Scala | `.scala` | `//` `/* */` |
-| Dart | `.dart` | `//` `/* */` |
-| Objective-C | `.m` `.mm` | `//` `/* */` |
+| 语言类别 | 语言 | 扩展名 | 注释格式 |
+|----------|------|--------|----------|
+| **C/C++家族** | C/C++ | `.c` `.cpp` `.cc` `.cxx` `.h` `.hpp` | `//` `/* */` |
+| | C# | `.cs` | `//` `/* */` |
+| **Java家族** | Java | `.java` | `//` `/* */` |
+| | Scala | `.scala` | `//` `/* */` |
+| | Kotlin | `.kt` | `//` `/* */` |
+| | Groovy | `.groovy` | `//` `/* */` |
+| **JavaScript家族** | JavaScript | `.js` `.jsx` `.mjs` `.cjs` | `//` `/* */` |
+| | TypeScript | `.ts` `.tsx` | `//` `/* */` |
+| | CoffeeScript | `.coffee` | `#` |
+| **系统编程** | Go | `.go` | `//` `/* */` |
+| | Rust | `.rs` | `//` `/* */` |
+| | Swift | `.swift` | `//` `/* */` |
+| | Dart | `.dart` | `//` `/* */` |
+| | Zig | `.zig` | `//` |
+| | D | `.d` | `//` `/* */` |
+| **移动开发** | Objective-C | `.m` `.mm` | `//` `/* */` |
+| **脚本语言** | Python | `.py` | `#` |
+| | Ruby | `.rb` | `#` |
+| | PHP | `.php` | `//` `/* */` `#` |
+| | Perl | `.pl` `.pm` | `#` |
+| | Lua | `.lua` | `--` |
+| | Tcl | `.tcl` | `#` |
+| **Shell脚本** | Bash/Shell | `.sh` `.bash` `.zsh` `.fish` | `#` |
+| | PowerShell | `.ps1` | `#` |
+| | Batch | `.bat` `.cmd` | `REM` |
+| **函数式语言** | Haskell | `.hs` | `--` `{- -}` |
+| | Elm | `.elm` | `--` `{- -}` |
+| | OCaml | `.ml` | `(* *)` |
+| | F# | `.fs` `.fsx` | `//` `(* *)` |
+| | Clojure | `.clj` `.cljs` | `;` |
+| | Scheme | `.scm` | `;` |
+| | Lisp | `.lisp` `.lsp` | `;` |
+| | Emacs Lisp | `.el` | `;` |
+| **数据科学** | R | `.r` `.R` | `#` |
+| | Julia | `.jl` | `#` |
+| | MATLAB | `.m` | `%` |
+| | Mathematica | `.nb` | `(* *)` |
+| **Web技术** | HTML | `.html` `.htm` | `<!-- -->` |
+| | XML | `.xml` `.svg` | `<!-- -->` |
+| | Vue | `.vue` | `//` `/* */` `<!-- -->` |
+| | Svelte | `.svelte` | `//` `/* */` `<!-- -->` |
+| | Astro | `.astro` | `//` `/* */` `<!-- -->` |
+| **CSS预处理器** | CSS | `.css` | `/* */` |
+| | SCSS | `.scss` | `//` `/* */` |
+| | Sass | `.sass` | `//` |
+| | Less | `.less` | `//` `/* */` |
+| | Stylus | `.styl` | `//` `/* */` |
+| **模板引擎** | Twig | `.twig` | `{# #}` |
+| | ERB | `.erb` | `<%# %>` |
+| | EJS | `.ejs` | `<%# %>` |
+| | Handlebars | `.hbs` | `{{! }}` |
+| | Mustache | `.mustache` | `{{! }}` |
+| | Pug | `.pug` | `//` |
+| | Liquid | `.liquid` | `{% comment %}` |
+| **配置文件** | YAML | `.yaml` `.yml` | `#` |
+| | TOML | `.toml` | `#` |
+| | INI | `.ini` `.cfg` `.conf` | `#` `;` |
+| | JSON5 | `.json5` `.jsonc` | `//` `/* */` |
+| **文档格式** | Markdown | `.md` `.markdown` `.mdx` | `<!-- -->` |
+| | LaTeX | `.tex` | `%` |
+| | reStructuredText | `.rst` | `..` |
+| | AsciiDoc | `.asciidoc` `.adoc` | `//` |
+| **数据库** | SQL | `.sql` `.plsql` `.psql` | `--` `/* */` |
+| **汇编语言** | Assembly | `.asm` `.s` `.S` | `;` |
+| **硬件描述** | Verilog | `.v` `.vh` `.sv` | `//` `/* */` |
+| | VHDL | `.vhd` `.vhdl` | `--` |
+| **游戏开发** | GDScript | `.gd` | `#` |
+| | HLSL | `.hlsl` | `//` `/* */` |
+| | GLSL | `.glsl` | `//` `/* */` |
+| | Shader | `.shader` | `//` `/* */` |
+| **其他语言** | Pascal | `.pas` `.pp` | `//` `(* *)` `{ }` |
+| | Ada | `.ada` `.adb` `.ads` | `--` |
+| | Fortran | `.f` `.f90` `.f95` `.for` | `!` |
+| | COBOL | `.cob` `.cbl` | `*` |
+| | Prolog | `.pro` | `%` `/* */` |
+| | Erlang | `.erl` | `%` |
+| | Elixir | `.ex` `.exs` | `#` |
+| | Nim | `.nim` | `#` |
+| | Crystal | `.cr` | `#` |
+| | Odin | `.odin` | `//` `/* */` |
+| **构建工具** | Makefile | `.mk` | `#` |
+| | CMake | `.cmake` | `#` |
+| | Gradle | `.gradle` | `//` `/* */` |
+| | Bazel | `.bazel` `.bzl` | `#` |
+| | Dockerfile | `.dockerfile` | `#` |
+| **DevOps** | Terraform | `.tf` | `#` `//` |
+| | HCL | `.hcl` | `#` `//` |
 
-## 🚀 快速开始
+## 安装
 
-### 安装方式
+### 下载预编译版本
 
-#### 方式一：下载预编译版本
+从 [Releases](https://github.com/Fldicoahkiin/fuck-comment/releases) 下载对应平台的可执行文件：
 
-从 [Releases](https://github.com/Fldicoahkiin/fuck-comment/releases) 页面下载对应平台的可执行文件：
-
-| 平台 | 架构 | 文件名 | 下载链接 |
-|------|------|--------|----------|
-| **Windows** | x64 | `fuck-comment-windows-amd64.exe` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-windows-amd64.exe) |
-| Windows | x86 | `fuck-comment-windows-386.exe` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-windows-386.exe) |
-| Windows | ARM64 | `fuck-comment-windows-arm64.exe` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-windows-arm64.exe) |
-| **macOS** | Intel | `fuck-comment-darwin-amd64` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-darwin-amd64) |
-| **macOS** | Apple Silicon | `fuck-comment-darwin-arm64` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-darwin-arm64) |
-| **Linux** | x64 | `fuck-comment-linux-amd64` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-linux-amd64) |
-| Linux | x86 | `fuck-comment-linux-386` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-linux-386) |
-| Linux | ARM64 | `fuck-comment-linux-arm64` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-linux-arm64) |
-| Linux | ARM | `fuck-comment-linux-arm` | [下载](https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-linux-arm) |
-
-**快速安装命令**：
-```bash
-# macOS/Linux - 下载并设置执行权限
-curl -L -o fuck-comment https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/')
-chmod +x fuck-comment
-
-# 或者使用wget
-wget -O fuck-comment https://github.com/Fldicoahkiin/fuck-comment/releases/latest/download/fuck-comment-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/')
-chmod +x fuck-comment
-```
-
-#### 方式二：源码编译
+### 源码编译
 
 ```bash
 # 克隆仓库
@@ -156,56 +205,58 @@ cd /path/to/your/project
 ./fuck-comment --force -v
 ```
 
-## 🔍 注释删除规则
+## 注释删除规则
 
 ### 支持的注释格式
 
-1. **行注释**: `// 这是行注释`
-2. **块注释**: `/* 这是块注释 */`
-3. **多行块注释**:
-   ```
-   /*
-    * 这是多行
-    * 块注释
-    */
-   ```
+- `//` 行注释 (C/C++, Go, Java, JavaScript等)
+- `/* */` 块注释 (C/C++, Go, Java, JavaScript等) 
+- `#` 井号注释 (Python, Shell, YAML等)
+- `--` 双破折号注释 (SQL, Haskell等)
+- `;` 分号注释 (Assembly, Lisp等)
+- `%` 百分号注释 (LaTeX, MATLAB等)
+- `!` 感叹号注释 (Fortran等)
+- `<!-- -->` HTML注释 (HTML, XML等)
+
+### ⚠️ 重要说明
+
+**Python Docstring 限制**: 工具不会删除Python的docstring（`"""文档字符串"""`），因为：
+- Docstring在技术上是字符串字面量，不是注释
+- 它们是Python API文档的重要组成部分
+- 可通过`help()`函数和`__doc__`属性访问
+- 许多文档生成工具依赖docstring
+
+如需删除docstring，建议使用专门的Python代码格式化工具。
 
 ### 处理示例
 
-**处理前**:
+处理前:
 ```go
 package main
-
 import "fmt" // 导入fmt包
-
-/*
- * 主函数
- * 程序入口点
- */
+/* 主函数 */
 func main() {
-    message := "Hello // World" // 这不是注释
-    fmt.Println(message) /* 输出消息 */
+    message := "Hello // World" // 字符串中的//不会被删除
+    fmt.Println(message) /* 输出 */
 }
 ```
 
-**处理后**:
+处理后:
 ```go
 package main
-
 import "fmt"
-
 func main() {
     message := "Hello // World"
     fmt.Println(message)
 }
 ```
 
-## 🛠️ 开发
+## 开发
 
 ### 环境要求
 
-- Go 1.21 或更高版本
-- Make (可选，用于构建)
+- Go 1.21+
+- Make (可选)
 
 ### 本地开发
 
@@ -227,84 +278,36 @@ make build
 make build-all
 ```
 
-### 项目结构
-
-```
-fuck-comment/
-├── main.go          # 主程序文件
-├── go.mod           # Go模块文件
-├── go.sum           # 依赖校验文件
-├── Makefile         # 构建配置
-├── build.sh         # 构建脚本
-├── README.md        # 项目文档
-└── dist/            # 构建输出目录
-```
-
-### 构建命令
+### 测试
 
 ```bash
-# 本地构建
-make build
-
-# 跨平台构建
-make build-all
-
-# 清理构建文件
-make clean
-
-# 安装到系统
-make install
-
 # 运行测试
-make test
+go test -v
 
-# 运行所有测试（包括基准测试）
-go test -v -bench=.
+# 测试覆盖率
+go test -cover
 ```
 
-### 测试覆盖
 
-项目包含完整的单元测试，覆盖核心功能：
+## 注意事项
 
-- ✅ **注释删除逻辑测试** - 验证各种注释格式的正确处理
-- ✅ **字符串检测测试** - 确保不会误删字符串内的注释符号
-- ✅ **文件类型识别测试** - 验证支持的文件扩展名检测
-- ✅ **文件处理测试** - 端到端的文件处理验证
-- ✅ **性能基准测试** - 确保处理大文件时的性能表现
+- 使用前备份重要文件
+- 建议在版本控制环境下使用
+- 确保对目标文件有写入权限
+- 文件需为UTF-8编码
 
-**性能表现**（Apple M1）：
-- 注释删除：~1.8μs per operation
-- 字符串检测：~81ns per operation
+## 贡献
 
-## ⚠️ 注意事项
+欢迎提交Issue和Pull Request
 
-1. **备份重要文件**: 使用前请备份重要代码文件
-2. **版本控制**: 建议在Git等版本控制系统下使用
-3. **测试环境**: 建议先在测试环境验证效果
-4. **文件权限**: 确保对目标文件有写入权限
-5. **字符编码**: 工具假设文件使用UTF-8编码
-6. **大文件处理**: 对于超大文件，建议分批处理或使用`--verbose`监控进度
+## 许可证
 
-## 🤝 贡献
+MIT License - 详见 [LICENSE](LICENSE) 文件。
 
-欢迎提交Issue和Pull Request！
+## 致谢
 
-### 贡献指南
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
-## 🙏 致谢
-
-- [Cobra](https://github.com/spf13/cobra) - 强大的CLI框架
-- [Go](https://golang.org/) - 优秀的编程语言
+- [Cobra](https://github.com/spf13/cobra)
+- [Go](https://golang.org/)
 
 ## Star History
 
