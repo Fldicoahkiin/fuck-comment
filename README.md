@@ -9,7 +9,7 @@
 
 ## 简介
 
-fuck-comment 是一个跨平台命令行工具，用于删除代码文件中的注释。支持8种注释格式，覆盖100+种编程语言。
+fuck-comment 是一个跨平台命令行工具，用于删除代码文件中的注释。支持8种注释格式，覆盖137个文件扩展名。
 
 ### 🔧 支持的编程语言
 
@@ -95,13 +95,18 @@ fuck-comment 是一个跨平台命令行工具，用于删除代码文件中的�
 | | Nim | `.nim` | `#` |
 | | Crystal | `.cr` | `#` |
 | | Odin | `.odin` | `//` `/* */` |
+| | Jai | `.jai` | `//` `/* */` |
 | **构建工具** | Makefile | `.mk` | `#` |
 | | CMake | `.cmake` | `#` |
 | | Gradle | `.gradle` | `//` `/* */` |
+| | SBT | `.sbt` | `//` `/* */` |
 | | Bazel | `.bazel` `.bzl` | `#` |
 | | Dockerfile | `.dockerfile` | `#` |
 | **DevOps** | Terraform | `.tf` | `#` `//` |
 | | HCL | `.hcl` | `#` `//` |
+| | Nomad | `.nomad` | `#` |
+| | Consul | `.consul` | `#` |
+| | Vault | `.vault` | `#` |
 
 ## 安装
 
@@ -217,6 +222,22 @@ cd /path/to/your/project
 - `%` 百分号注释 (LaTeX, MATLAB等)
 - `!` 感叹号注释 (Fortran等)
 - `<!-- -->` HTML注释 (HTML, XML等)
+
+### 歧义扩展名智能检测
+
+工具会自动检测以下歧义扩展名的真实文件类型：
+
+| 扩展名 | 可能的语言 | 检测方法 |
+|--------|------------|----------|
+| `.m` | Objective-C / MATLAB | 检测关键字和语法特征 |
+| `.r` | R语言 | 检测R语言特有函数和语法 |
+| `.s` | Assembly / Scheme | 检测汇编指令或Scheme语法 |
+| `.d` | D语言 | 检测D语言特有语法 |
+| `.f` | Fortran | 检测Fortran语法特征 |
+| `.pro` | Prolog / Qt Project | 检测语法特征 |
+| `.pl` | Perl / Prolog | 检测语法特征 |
+| `.pp` | Pascal / Puppet | 检测语法特征 |
+| `.v` | Verilog / Vim Script | 检测硬件描述语法 |
 
 ### ⚠️ 重要说明
 

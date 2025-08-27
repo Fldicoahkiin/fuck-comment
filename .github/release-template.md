@@ -32,7 +32,7 @@ Get-FileHash fuck-comment-*.exe -Algorithm SHA256
 
 ## 🔧 支持的语言
 
-支持 **100+** 种编程语言和文件类型：
+支持 **137** 个文件扩展名，覆盖主流编程语言和配置文件：
 
 ### 编程语言
 - **C/C++ 系列**: C, C++, C#, Objective-C
@@ -43,13 +43,15 @@ Get-FileHash fuck-comment-*.exe -Algorithm SHA256
 - **Shell**: Bash, Zsh, Fish, PowerShell, Batch
 - **函数式**: Haskell, Elm, OCaml, F#, Clojure, Lisp, Scheme
 - **数据科学**: R, Julia, MATLAB
-- **其他**: Fortran, Pascal, Ada, Erlang, Elixir, Nim, Crystal
+- **其他**: Fortran, Pascal, Ada, Erlang, Elixir, Nim, Crystal, Odin, Jai
 
 ### 标记语言
 - **Web**: HTML, XML, SVG
 - **样式**: CSS, SCSS, Sass, Less, Stylus  
 - **文档**: Markdown, LaTeX, reStructuredText, AsciiDoc
 - **配置**: YAML, TOML, INI, JSON
+- **构建工具**: Makefile, CMake, Gradle, SBT, Bazel, Dockerfile
+- **DevOps**: Terraform, HCL, Nomad, Consul, Vault
 
 ### 注释格式
 - `//` 行注释 (C/C++, Go, Java, JavaScript等)
