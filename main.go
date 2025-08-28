@@ -335,7 +335,7 @@ func isFileSafe(filePath string, content []byte, force bool) error {
 func initBackupDir(workingDir string) {
 	if backupRootDir == "" {
 		dirName := filepath.Base(workingDir)
-		backupRootDir = filepath.Join("bak", dirName+"_"+backupTimestamp)
+		backupRootDir = filepath.Join(workingDir, "bak", dirName+"_"+backupTimestamp)
 	}
 }
 
@@ -616,18 +616,21 @@ func checkProtectionRules(ctx ProtectionContext) bool {
 		// C风格语言的通用保护已在通用规则中处理
 		break
 	case "yaml", "yml":
-		// 保护URL中的锚点和Shell变量
+		// 保护字符串中的#和Shell变量
 		if ctx.CommentStart == "#" {
-			// 保护URL锚点
-			if strings.Contains(ctx.Line[:ctx.Pos], "http") {
+			// 保护字符串中的URL锚点
+			if isInAnyString(ctx.Line, ctx.Pos) && strings.Contains(ctx.Line[:ctx.Pos], "http") {
 				return true
 			}
 			// 保护Shell变量如 ${GITHUB_REF#refs/tags/}
 			if strings.Contains(ctx.Line[:ctx.Pos], "${") {
-				return true
+				beforeComment := ctx.Line[:ctx.Pos]
+				if strings.Count(beforeComment, "{") > strings.Count(beforeComment, "}") {
+					return true
+				}
 			}
-			// 保护任何包含$的行中的#
-			if strings.Contains(ctx.Line[:ctx.Pos], "$") {
+			// 保护字符串内的任何#
+			if isInAnyString(ctx.Line, ctx.Pos) {
 				return true
 			}
 		}
@@ -705,22 +708,29 @@ func checkPythonProtection(ctx ProtectionContext) bool {
 	if ctx.CommentStart == "#" {
 		beforeComment := ctx.Line[:ctx.Pos]
 		
-		// 保护docstring中的#
-		if strings.Contains(beforeComment, `"""`) && !strings.Contains(beforeComment[strings.Index(beforeComment, `"""`)+3:], `"""`) {
-			return true
+		// 保护docstring中的#（仅在docstring内部）
+		if strings.Contains(beforeComment, `"""`) {
+			firstTriple := strings.Index(beforeComment, `"""`)
+			afterFirst := beforeComment[firstTriple+3:]
+			if !strings.Contains(afterFirst, `"""`) {
+				return true // 在未闭合的docstring内部
+			}
 		}
-		if strings.Contains(beforeComment, "'''") && !strings.Contains(beforeComment[strings.Index(beforeComment, "'''")+3:], "'''") {
-			return true
+		if strings.Contains(beforeComment, "'''") {
+			firstTriple := strings.Index(beforeComment, "'''")
+			afterFirst := beforeComment[firstTriple+3:]
+			if !strings.Contains(afterFirst, "'''") {
+				return true // 在未闭合的docstring内部
+			}
 		}
 		
-		// 保护URL中的锚点
-		if strings.Contains(beforeComment, "http") && strings.Contains(beforeComment, "#") {
+		// 保护字符串中的URL锚点（只有当#确实在字符串内部时才保护）
+		if isInAnyString(ctx.Line, ctx.Pos) && strings.Contains(beforeComment, "http") {
 			return true
 		}
 		
 		// 保护Python原始字符串中的#
 		if strings.Contains(beforeComment, "r\"") || strings.Contains(beforeComment, "r'") {
-			// 检查注释位置是否在原始字符串内部
 			quoteCount := strings.Count(beforeComment, "\"") + strings.Count(beforeComment, "'")
 			if quoteCount%2 == 1 {
 				return true
@@ -778,22 +788,9 @@ func checkShellProtection(ctx ProtectionContext) bool {
 		if strings.Contains(beforeComment, "[ ") && !strings.Contains(beforeComment, " ]") {
 			return true
 		}
-		// 保护URL中的#（但要更精确）
-		if strings.Contains(beforeComment, "http") {
-			// 检查#是否在URL内部，而不是在URL后面的注释
-			httpIndex := strings.Index(beforeComment, "http")
-			hashIndex := strings.Index(beforeComment[httpIndex:], "#")
-			if hashIndex != -1 {
-				// 检查#后面是否有空格，如果有空格说明是注释而不是URL的一部分
-				actualHashPos := httpIndex + hashIndex
-				if actualHashPos == ctx.Pos {
-					// 当前#位置就在URL中
-					afterHash := ctx.Line[ctx.Pos+1:]
-					if len(afterHash) > 0 && afterHash[0] != ' ' && afterHash[0] != '\t' {
-						return true
-					}
-				}
-			}
+		// 保护字符串中的URL锚点（只有当#确实在字符串内部时才保护）
+		if isInAnyString(ctx.Line, ctx.Pos) && strings.Contains(beforeComment, "http") {
+			return true
 		}
 		// 保护颜色代码（更精确的检查）
 		if strings.Contains(beforeComment, "#") && len(beforeComment) >= 6 {
@@ -917,6 +914,93 @@ func checkProtectionRulesLegacy(ctx ProtectionContext) bool {
 	return false
 }
 
+// getCommentRulesForLanguage 获取指定语言的注释规则
+func getCommentRulesForLanguage(fileType string) []CommentRule {
+	// C风格语言 (// 和 /* */)
+	cStyleRules := []CommentRule{
+		{StartPattern: "//", EndPattern: "", IsLineComment: true},
+		{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
+	}
+	
+	// 井号注释语言 (#)
+	hashStyleRules := []CommentRule{
+		{StartPattern: "#", EndPattern: "", IsLineComment: true},
+	}
+	
+	// 双破折号语言 (--)
+	dashStyleRules := []CommentRule{
+		{StartPattern: "--", EndPattern: "", IsLineComment: true},
+	}
+	_ = dashStyleRules // 避免未使用变量错误
+	
+	switch fileType {
+	case "javascript", "js", "typescript", "ts", "go":
+		return cStyleRules
+	case "c", "cpp", "cc", "cxx", "h", "hpp", "cs", "java", "scala", "kt", "groovy":
+		return cStyleRules
+	case "rust", "rs":
+		return cStyleRules
+	case "swift", "dart", "zig", "d":
+		return cStyleRules
+	case "shell", "bash", "zsh", "sh":
+		return hashStyleRules
+	case "python", "py":
+		return hashStyleRules
+	case "ruby", "rb":
+		return hashStyleRules
+	case "perl", "pl", "pm":
+		return hashStyleRules
+	case "r", "R":
+		return hashStyleRules
+	case "tcl":
+		return hashStyleRules
+	case "php":
+		return []CommentRule{
+			{StartPattern: "//", EndPattern: "", IsLineComment: true},
+			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
+			{StartPattern: "#", EndPattern: "", IsLineComment: true},
+		}
+	case "lua":
+		return []CommentRule{
+			{StartPattern: "--", EndPattern: "", IsLineComment: true},
+			{StartPattern: "--[[", EndPattern: "]]", IsLineComment: false},
+		}
+	case "sql", "plsql", "psql":
+		return []CommentRule{
+			{StartPattern: "--", EndPattern: "", IsLineComment: true},
+			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
+		}
+	case "haskell", "hs":
+		return []CommentRule{
+			{StartPattern: "--", EndPattern: "", IsLineComment: true},
+			{StartPattern: "{-", EndPattern: "-}", IsLineComment: false},
+		}
+	case "matlab", "m":
+		return []CommentRule{
+			{StartPattern: "%", EndPattern: "", IsLineComment: true},
+			{StartPattern: "%{", EndPattern: "%}", IsLineComment: false},
+		}
+	case "latex", "tex":
+		return []CommentRule{
+			{StartPattern: "%", EndPattern: "", IsLineComment: true},
+		}
+	case "assembly", "asm", "s":
+		return []CommentRule{
+			{StartPattern: ";", EndPattern: "", IsLineComment: true},
+			{StartPattern: "#", EndPattern: "", IsLineComment: true},
+			{StartPattern: "//", EndPattern: "", IsLineComment: true},
+		}
+	case "fortran", "f", "f90", "f95":
+		return []CommentRule{
+			{StartPattern: "!", EndPattern: "", IsLineComment: true},
+			{StartPattern: "C", EndPattern: "", IsLineComment: true},
+			{StartPattern: "c", EndPattern: "", IsLineComment: true},
+		}
+	default:
+		return hashStyleRules // 默认使用井号注释
+	}
+}
+
 // removeCommentsByRules 根据注释规则删除注释
 func removeCommentsByRules(content string, fileType string, rules []CommentRule) string {
 	lines := strings.Split(content, "\n")
@@ -961,6 +1045,9 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 							}
 							processedLine = beforeEnd + afterEnd
 							singleLineDocstring = true
+						} else {
+							// 单行docstring占据整行，不影响多行状态
+							singleLineDocstring = true
 						}
 					}
 				}
@@ -997,6 +1084,9 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 								afterEnd = strings.TrimRight(afterEnd[:pos], " \t")
 							}
 							processedLine = beforeEnd + afterEnd
+							singleLineDocstring = true
+						} else {
+							// 单行docstring占据整行，不影响多行状态
 							singleLineDocstring = true
 						}
 					}
@@ -1219,9 +1309,9 @@ func removeGoComments(content string) string {
 	return removeCommentsByRules(content, "go", rules)
 }
 
-// removeComments 根据文件类型智能删除注释
-func removeComments(content string, fileType string) string {
-	// 对于特殊文件类型，不处理或特殊处理
+// removeComments 移除指定文件类型的注释
+func removeComments(content, fileType string) string {
+	// 特殊文件类型使用专门的处理函数
 	switch fileType {
 	case "markdown":
 		return removeMarkdownComments(content)
@@ -1231,304 +1321,13 @@ func removeComments(content string, fileType string) string {
 		return removeJsonComments(content)
 	case "xml", "html", "htm", "svg":
 		return removeXmlComments(content)
-	case "css", "scss", "sass", "less", "styl":
+	case "css":
 		return removeCssComments(content)
-	case "go":
-		return removeGoComments(content)
-	case "javascript", "typescript", "js", "ts", "jsx", "tsx":
-		rules := []CommentRule{
-			{StartPattern: "//", EndPattern: "", IsLineComment: true},
-			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
-		}
+	default:
+		// 使用通用规则处理其他语言
+		rules := getCommentRulesForLanguage(fileType)
 		return removeCommentsByRules(content, fileType, rules)
-	case "c", "cpp", "cc", "cxx", "h", "hpp", "cs", "java", "scala", "kt", "groovy":
-		rules := []CommentRule{
-			{StartPattern: "//", EndPattern: "", IsLineComment: true},
-			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
-		}
-		return removeCommentsByRules(content, fileType, rules)
-	case "rust", "rs":
-		rules := []CommentRule{
-			{StartPattern: "//", EndPattern: "", IsLineComment: true},
-			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
-		}
-		return removeCommentsByRules(content, "rust", rules)
-	case "swift", "dart", "zig", "d":
-		rules := []CommentRule{
-			{StartPattern: "//", EndPattern: "", IsLineComment: true},
-			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
-		}
-		return removeCommentsByRules(content, fileType, rules)
-	case "shell", "bash", "zsh", "sh":
-		rules := []CommentRule{
-			{StartPattern: "#", EndPattern: "", IsLineComment: true},
-		}
-		return removeCommentsByRules(content, "shell", rules)
-	case "python", "py":
-		rules := []CommentRule{
-			{StartPattern: "#", EndPattern: "", IsLineComment: true},
-		}
-		return removeCommentsByRules(content, "python", rules)
-	case "ruby", "rb":
-		rules := []CommentRule{
-			{StartPattern: "#", EndPattern: "", IsLineComment: true},
-		}
-		return removeCommentsByRules(content, "ruby", rules)
-	case "php":
-		rules := []CommentRule{
-			{StartPattern: "//", EndPattern: "", IsLineComment: true},
-			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
-			{StartPattern: "#", EndPattern: "", IsLineComment: true},
-		}
-		return removeCommentsByRules(content, "php", rules)
-	case "perl", "pl", "pm":
-		rules := []CommentRule{
-			{StartPattern: "#", EndPattern: "", IsLineComment: true},
-		}
-		return removeCommentsByRules(content, "perl", rules)
-	case "lua":
-		rules := []CommentRule{
-			{StartPattern: "--", EndPattern: "", IsLineComment: true},
-			{StartPattern: "--[[", EndPattern: "]]", IsLineComment: false},
-		}
-		return removeCommentsByRules(content, "lua", rules)
-	case "r", "R":
-		rules := []CommentRule{
-			{StartPattern: "#", EndPattern: "", IsLineComment: true},
-		}
-		return removeCommentsByRules(content, "r", rules)
-	case "tcl":
-		rules := []CommentRule{
-			{StartPattern: "#", EndPattern: "", IsLineComment: true},
-		}
-		return removeCommentsByRules(content, fileType, rules)
-	case "sql", "plsql", "psql":
-		rules := []CommentRule{
-			{StartPattern: "--", EndPattern: "", IsLineComment: true},
-			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
-		}
-		return removeCommentsByRules(content, "sql", rules)
-	case "haskell", "hs":
-		rules := []CommentRule{
-			{StartPattern: "--", EndPattern: "", IsLineComment: true},
-			{StartPattern: "{-", EndPattern: "-}", IsLineComment: false},
-		}
-		return removeCommentsByRules(content, "haskell", rules)
-	case "matlab", "m":
-		rules := []CommentRule{
-			{StartPattern: "%", EndPattern: "", IsLineComment: true},
-			{StartPattern: "%{", EndPattern: "%}", IsLineComment: false},
-		}
-		return removeCommentsByRules(content, "matlab", rules)
-	case "latex", "tex":
-		rules := []CommentRule{
-			{StartPattern: "%", EndPattern: "", IsLineComment: true},
-		}
-		return removeCommentsByRules(content, "latex", rules)
-	case "assembly", "asm", "s":
-		rules := []CommentRule{
-			{StartPattern: ";", EndPattern: "", IsLineComment: true},
-			{StartPattern: "#", EndPattern: "", IsLineComment: true},
-			{StartPattern: "//", EndPattern: "", IsLineComment: true},
-		}
-		return removeCommentsByRules(content, "assembly", rules)
-	case "fortran", "f", "f90", "f95":
-		rules := []CommentRule{
-			{StartPattern: "!", EndPattern: "", IsLineComment: true},
-			{StartPattern: "C", EndPattern: "", IsLineComment: true}, // Fortran 77 style
-			{StartPattern: "c", EndPattern: "", IsLineComment: true}, // Fortran 77 style
-		}
-		return removeCommentsByRules(content, "fortran", rules)
 	}
-
-	lines := strings.Split(content, "\n")
-	var result []string
-	inBlockComment := false
-	inHTMLComment := false
-	inBacktickString := false // 跟踪反引号字符串状态
-
-	for _, line := range lines {
-		originalLine := line
-		processedLine := line
-		
-		// 处理HTML注释块
-		if inHTMLComment {
-			if endIndex := strings.Index(line, "-->"); endIndex != -1 {
-				processedLine = line[endIndex+3:]
-				inHTMLComment = false
-			} else {
-				// 整行都在HTML注释中，跳过这一行
-				continue
-			}
-		}
-		
-		// 处理C风格块注释
-		if inBlockComment {
-			if endIndex := strings.Index(line, "*/"); endIndex != -1 {
-				processedLine = line[endIndex+2:]
-				inBlockComment = false
-			} else {
-				// 整行都在块注释中，跳过这一行
-				continue
-			}
-		}
-		
-		// 更新反引号字符串状态
-		for i, char := range processedLine {
-			if char == '`' && !inBlockComment && !inHTMLComment {
-				// 检查是否在其他类型的字符串中
-				if !isInQuoteString(processedLine, i) {
-					inBacktickString = !inBacktickString
-				}
-			}
-		}
-		
-		if !inBlockComment && !inHTMLComment && !inBacktickString {
-			// 找到最早的注释位置，避免冲突
-			earliestCommentPos := len(processedLine)
-			
-			// 检查C风格行注释 //
-			for i := 0; i < len(processedLine)-1; i++ {
-				if processedLine[i] == '/' && processedLine[i+1] == '/' && !isInString(processedLine, i) {
-					if i < earliestCommentPos {
-						earliestCommentPos = i
-					}
-					break
-				}
-			}
-			
-			// 检查双破折号注释 -- (Haskell, Ada, SQL等)
-			for i := 0; i < len(processedLine)-1; i++ {
-				if processedLine[i] == '-' && processedLine[i+1] == '-' && !isInString(processedLine, i) {
-					if i < earliestCommentPos {
-						earliestCommentPos = i
-					}
-					break
-				}
-			}
-			
-			// 检查Python/Shell风格行注释 # (只有在非字符串且有实际内容时才处理)
-			for i := 0; i < len(processedLine); i++ {
-				if processedLine[i] == '#' && !isInString(processedLine, i) {
-					// 确保不是单独的字符
-					if len(strings.TrimSpace(processedLine)) > 1 || i > 0 {
-						if i < earliestCommentPos {
-							earliestCommentPos = i
-						}
-						break
-					}
-				}
-			}
-			
-			// 检查分号注释 ; (Assembly, Lisp等)
-			for i := 0; i < len(processedLine); i++ {
-				if processedLine[i] == ';' && !isInString(processedLine, i) {
-					// 确保不是单独的字符
-					if len(strings.TrimSpace(processedLine)) > 1 || i > 0 {
-						if i < earliestCommentPos {
-							earliestCommentPos = i
-						}
-						break
-					}
-				}
-			}
-			
-			// 检查百分号注释 % (LaTeX, MATLAB等)
-			for i := 0; i < len(processedLine); i++ {
-				if processedLine[i] == '%' && !isInString(processedLine, i) {
-					// 确保不是单独的字符
-					if len(strings.TrimSpace(processedLine)) > 1 || i > 0 {
-						if i < earliestCommentPos {
-							earliestCommentPos = i
-						}
-						break
-					}
-				}
-			}
-			
-			// 检查感叹号注释 ! (Fortran等)
-			for i := 0; i < len(processedLine); i++ {
-				if processedLine[i] == '!' && !isInString(processedLine, i) {
-					// 确保不是单独的字符
-					if len(strings.TrimSpace(processedLine)) > 1 || i > 0 {
-						if i < earliestCommentPos {
-							earliestCommentPos = i
-						}
-						break
-					}
-				}
-			}
-			
-			// 如果找到了注释，截断到该位置
-			if earliestCommentPos < len(processedLine) {
-				processedLine = processedLine[:earliestCommentPos]
-			}
-			
-			// 处理HTML注释 <!-- -->
-			for {
-				startIdx := strings.Index(processedLine, "<!--")
-				if startIdx == -1 || isInString(processedLine, startIdx) {
-					break
-				}
-				
-				endIdx := strings.Index(processedLine[startIdx:], "-->")
-				if endIdx != -1 {
-					// 同一行内的HTML注释
-					endIdx += startIdx + 3
-					processedLine = processedLine[:startIdx] + processedLine[endIdx:]
-				} else {
-					// 跨行HTML注释开始
-					processedLine = processedLine[:startIdx]
-					inHTMLComment = true
-					break
-				}
-			}
-			
-			// 处理C风格块注释 /* */
-			for {
-				startIdx := strings.Index(processedLine, "/*")
-				if startIdx == -1 || isInString(processedLine, startIdx) {
-					break
-				}
-				
-				endIdx := strings.Index(processedLine[startIdx:], "*/")
-				if endIdx != -1 {
-					// 同一行内的块注释
-					endIdx += startIdx + 2
-					processedLine = processedLine[:startIdx] + processedLine[endIdx:]
-				} else {
-					// 跨行块注释开始
-					processedLine = processedLine[:startIdx]
-					inBlockComment = true
-					break
-				}
-			}
-		}
-		
-		// 移除行尾空白
-		processedLine = strings.TrimRight(processedLine, " \t")
-		
-		// 如果处理后的行只包含空白字符，且原行包含注释，则跳过该行
-		if strings.TrimSpace(processedLine) == "" && strings.TrimSpace(originalLine) != "" {
-			trimmedOriginal := strings.TrimSpace(originalLine)
-			if strings.HasPrefix(trimmedOriginal, "//") || 
-			   strings.HasPrefix(trimmedOriginal, "/*") || 
-			   strings.HasPrefix(trimmedOriginal, "#") ||
-			   strings.HasPrefix(trimmedOriginal, "<!--") ||
-			   strings.HasPrefix(trimmedOriginal, "--") ||
-			   strings.HasPrefix(trimmedOriginal, ";") ||
-			   strings.HasPrefix(trimmedOriginal, "%") ||
-			   strings.HasPrefix(trimmedOriginal, "!") ||
-			   strings.Contains(trimmedOriginal, "*/") ||
-			   strings.Contains(trimmedOriginal, "-->") {
-				continue
-			}
-		}
-		
-		result = append(result, processedLine)
-	}
-	
-	return strings.Join(result, "\n")
 }
 
 // isInQuoteString 检查指定位置是否在单引号或双引号字符串内（不包括反引号）
@@ -1592,17 +1391,16 @@ func isInAnyString(line string, pos int) bool {
 	}
 	
 	var inSingleQuote, inDoubleQuote bool
-	lineBytes := []byte(line)
 	
-	for i := 0; i < pos && i < len(lineBytes); i++ {
-		char := lineBytes[i]
+	for i := 0; i < pos; i++ {
+		char := line[i]
 		
 		switch char {
 		case '\'':
 			if !inDoubleQuote {
 				// 检查是否被转义
 				backslashCount := 0
-				for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
+				for j := i - 1; j >= 0 && line[j] == '\\'; j-- {
 					backslashCount++
 				}
 				if backslashCount%2 == 0 {
@@ -1611,29 +1409,13 @@ func isInAnyString(line string, pos int) bool {
 			}
 		case '"':
 			if !inSingleQuote {
-				// 检查是否是原始字符串 r"..."
-				if i > 0 && lineBytes[i-1] == 'r' {
-					// 原始字符串：跳过整个原始字符串，在字符串内部时返回true
-					for j := i + 1; j < len(lineBytes); j++ {
-						if j >= pos {
-							// 位置在原始字符串内部
-							return true
-						}
-						if lineBytes[j] == '"' {
-							// 找到结束引号，跳过
-							i = j
-							break
-						}
-					}
-				} else {
-					// 普通字符串，检查转义
-					backslashCount := 0
-					for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
-						backslashCount++
-					}
-					if backslashCount%2 == 0 {
-						inDoubleQuote = !inDoubleQuote
-					}
+				// 检查是否被转义
+				backslashCount := 0
+				for j := i - 1; j >= 0 && line[j] == '\\'; j-- {
+					backslashCount++
+				}
+				if backslashCount%2 == 0 {
+					inDoubleQuote = !inDoubleQuote
 				}
 			}
 		}
