@@ -3,11 +3,27 @@ package main
 import (
 	"fmt"
 	"io/fs"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
+)
+
+// 颜色常量
+const (
+	ColorReset  = "\033[0m"
+	ColorRed    = "\033[31m"
+	ColorGreen  = "\033[32m"
+	ColorYellow = "\033[33m"
+	ColorBlue   = "\033[34m"
+	ColorPurple = "\033[35m"
+	ColorCyan   = "\033[36m"
+	ColorWhite  = "\033[37m"
+	ColorBold   = "\033[1m"
 )
 
 var (
@@ -15,6 +31,23 @@ var (
 	Version   = "dev"
 	BuildTime = "unknown"
 	GitCommit = "unknown"
+	
+	// 命令行参数
+	targetFile string
+	forceMode  bool
+	showVersion bool
+	
+	// 统计信息
+	processedFiles []string
+	skippedFiles   []string
+	
+	// 安全限制
+	maxFileSize = 100 * 1024 * 1024 // 100MB
+	maxLineLength = 50000           // 50K字符
+	
+	// 备份相关
+	backupTimestamp = time.Now().Format("20060102_150405")
+	backupRootDir   string // 备份根目录，格式：bak/dirname_timestamp
 
 	// 支持的编程语言文件扩展名
 	supportedExtensions = map[string]bool{
@@ -197,13 +230,149 @@ var (
 		".consul": true, // Consul
 		".vault": true, // Vault
 	}
-
-	// CLI 参数
-	targetFile string
-	forceMode  bool
-	verbose    bool
-	showVersion bool
 )
+
+// isBinaryFile 检测是否为二进制文件
+func isBinaryFile(content []byte) bool {
+	if len(content) == 0 {
+		return false
+	}
+	
+	// 检查前512字节是否包含null字节
+	checkSize := 512
+	if len(content) < checkSize {
+		checkSize = len(content)
+	}
+	
+	for i := 0; i < checkSize; i++ {
+		if content[i] == 0 {
+			return true
+		}
+	}
+	
+	// 检查是否为有效UTF-8
+	return !utf8.Valid(content)
+}
+
+// 颜色输出函数
+func printSuccess(format string, args ...interface{}) {
+	fmt.Printf(ColorGreen+"✓ "+format+ColorReset+"\n", args...)
+}
+
+func printError(format string, args ...interface{}) {
+	fmt.Printf(ColorRed+"✗ "+format+ColorReset+"\n", args...)
+}
+
+func printWarning(format string, args ...interface{}) {
+	fmt.Printf(ColorYellow+"⚠ "+format+ColorReset+"\n", args...)
+}
+
+func printInfo(format string, args ...interface{}) {
+	fmt.Printf(ColorBlue+"ℹ "+format+ColorReset+"\n", args...)
+}
+
+func printProcessing(format string, args ...interface{}) {
+	fmt.Printf(ColorCyan+"→ "+format+ColorReset+"\n", args...)
+}
+
+func printHeader(format string, args ...interface{}) {
+	fmt.Printf(ColorBold+ColorPurple+"🚀 "+format+ColorReset+"\n", args...)
+}
+
+// printSummary 显示处理结果摘要
+func printSummary() {
+	totalFiles := len(processedFiles) + len(skippedFiles)
+	
+	if totalFiles == 0 {
+		fmt.Printf(ColorYellow+"未找到需要处理的文件\n"+ColorReset)
+		return
+	}
+	
+	// 简洁的统计信息
+	fmt.Printf("\n")
+	fmt.Printf(ColorGreen+"%d"+ColorReset+" 处理", len(processedFiles))
+	if len(skippedFiles) > 0 {
+		fmt.Printf(" | "+ColorYellow+"%d"+ColorReset+" 跳过", len(skippedFiles))
+	}
+	if backupRootDir != "" {
+		fmt.Printf(" | 备份: "+ColorBlue+"%s"+ColorReset+"\n", backupRootDir)
+	}
+}
+
+// isFileSafe 检查文件是否安全处理
+func isFileSafe(filePath string, content []byte, force bool) error {
+	// 在强制模式下，只检查二进制文件，其他限制可以绕过
+	if force {
+		if isBinaryFile(content) {
+			return fmt.Errorf("文件 %s 是二进制文件，跳过处理", filePath)
+		}
+		return nil
+	}
+	
+	// 非强制模式下的完整安全检查
+	// 检查文件大小
+	if len(content) > maxFileSize {
+		return fmt.Errorf("文件 %s 太大 (%d bytes), 超过限制 %d bytes", filePath, len(content), maxFileSize)
+	}
+	
+	// 检查是否为二进制文件
+	if isBinaryFile(content) {
+		return fmt.Errorf("文件 %s 是二进制文件，跳过处理", filePath)
+	}
+	
+	// 检查行长度
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		if len(line) > maxLineLength {
+			return fmt.Errorf("文件 %s 第 %d 行太长 (%d 字符), 超过限制 %d 字符", filePath, i+1, len(line), maxLineLength)
+		}
+	}
+	
+	return nil
+}
+
+// initBackupDir 初始化备份根目录
+func initBackupDir(workingDir string) {
+	if backupRootDir == "" {
+		dirName := filepath.Base(workingDir)
+		backupRootDir = filepath.Join("bak", dirName+"_"+backupTimestamp)
+	}
+}
+
+// createBackup 创建文件备份，保持目录结构
+func createBackup(filePath, workingDir string) error {
+	// 初始化备份根目录
+	initBackupDir(workingDir)
+	
+	// 计算相对路径
+	relPath, err := filepath.Rel(workingDir, filePath)
+	if err != nil {
+		return fmt.Errorf("计算相对路径失败: %v", err)
+	}
+	
+	// 生成备份文件路径，保持目录结构
+	backupPath := filepath.Join(backupRootDir, relPath)
+	
+	// 创建备份文件的目录
+	backupFileDir := filepath.Dir(backupPath)
+	if err := os.MkdirAll(backupFileDir, 0755); err != nil {
+		return fmt.Errorf("创建备份目录失败: %v", err)
+	}
+	
+	// 读取原文件内容
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return fmt.Errorf("读取文件失败: %v", err)
+	}
+	
+	// 写入备份文件
+	err = ioutil.WriteFile(backupPath, content, 0644)
+	if err != nil {
+		return fmt.Errorf("创建备份失败: %v", err)
+	}
+	
+	return nil
+}
 
 // detectFileType 检测文件的真实类型，处理歧义扩展名
 func detectFileType(filePath string) string {
@@ -411,250 +580,287 @@ func detectVFileType(filePath string) string {
 	return "unknown"
 }
 
-// removeMarkdownComments 处理 Markdown 文件 - 不删除 # 标题
-func removeMarkdownComments(content string) string {
-	lines := strings.Split(content, "\n")
-	var result []string
-	inCodeBlock := false
-	
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		
-		// 检测代码块
-		if strings.HasPrefix(trimmed, "```") {
-			inCodeBlock = !inCodeBlock
-			result = append(result, line)
-			continue
-		}
-		
-		// 在代码块内，不处理注释
-		if inCodeBlock {
-			result = append(result, line)
-			continue
-		}
-		
-		// 只删除 HTML 注释，保留 # 标题
-		processedLine := line
-		for {
-			startIdx := strings.Index(processedLine, "<!--")
-			if startIdx == -1 {
-				break
-			}
-			endIdx := strings.Index(processedLine[startIdx:], "-->")
-			if endIdx != -1 {
-				endIdx += startIdx + 3
-				processedLine = processedLine[:startIdx] + processedLine[endIdx:]
-			} else {
-				processedLine = processedLine[:startIdx]
-				break
-			}
-		}
-		
-		result = append(result, processedLine)
-	}
-	
-	return strings.Join(result, "\n")
+// CommentRule 定义注释处理规则
+type CommentRule struct {
+	StartPattern string
+	EndPattern   string
+	IsLineComment bool
+	ProtectFunc  func(line string, pos int) bool // 保护函数，返回true表示不删除
 }
 
-// removeYamlComments 处理 YAML 文件 - 智能删除注释，保护YAML结构
-func removeYamlComments(content string) string {
-	lines := strings.Split(content, "\n")
-	var result []string
-	
-	for _, line := range lines {
-		processedLine := line
-		inDoubleQuote := false
-		inSingleQuote := false
-		escaped := false
-		bracketDepth := 0
-		
-		for i := 0; i < len(line); i++ {
-			char := line[i]
-			
-			if escaped {
-				escaped = false
-				continue
-			}
-			
-			if char == '\\' && (inDoubleQuote || inSingleQuote) {
-				escaped = true
-				continue
-			}
-			
-			// 跟踪引号状态
-			if char == '"' && !inSingleQuote {
-				inDoubleQuote = !inDoubleQuote
-				continue
-			}
-			if char == '\'' && !inDoubleQuote {
-				inSingleQuote = !inSingleQuote
-				continue
-			}
-			
-			// 跟踪数组/对象括号
-			if !inDoubleQuote && !inSingleQuote {
-				if char == '[' || char == '{' {
-					bracketDepth++
-				} else if char == ']' || char == '}' {
-					bracketDepth--
-				}
-			}
-			
-			// 只在字符串外且不在数组/对象内删除 # 注释
-			if char == '#' && !inDoubleQuote && !inSingleQuote && bracketDepth == 0 {
-				beforeHash := strings.TrimSpace(line[:i])
-				
-				// 检查是否是YAML键值对的一部分
-				if beforeHash == "" {
-					// 整行都是注释
-					processedLine = ""
-					break
-				} else if strings.Contains(beforeHash, ":") {
-					// 包含冒号，可能是键值对后的注释
-					processedLine = strings.TrimRight(line[:i], " \t")
-					break
-				} else {
-					// 可能是值的一部分，保留
-					continue
-				}
-			}
-		}
-		
-		result = append(result, processedLine)
+// shouldProtectInContext 检查是否应该在特定上下文中保护注释
+func shouldProtectInContext(line string, pos int, fileType string, commentStart string) bool {
+	// 通用保护：字符串内的注释符号
+	if isInString(line, pos) {
+		return true
 	}
 	
-	return strings.Join(result, "\n")
+	switch fileType {
+	case "markdown":
+		// 保护表格中的HTML注释示例
+		if commentStart == "<!--" && strings.Contains(line, "|") {
+			return true
+		}
+	case "yaml", "yml":
+		// 保护URL中的锚点和Shell变量
+		if commentStart == "#" {
+			beforeComment := line[:pos]  // 不要trim，保持原始格式
+			// 保护URL锚点
+			if strings.Contains(beforeComment, "http") {
+				return true
+			}
+			// 保护Shell变量如 ${GITHUB_REF#refs/tags/}
+			if strings.Contains(beforeComment, "${") {
+				return true
+			}
+			// 保护任何包含$的行中的#
+			if strings.Contains(beforeComment, "$") {
+				return true
+			}
+		}
+	case "css", "scss", "less", "stylus":
+		// CSS中保护URL和content属性中的注释符号
+		if commentStart == "/*" || commentStart == "//" {
+			// 检查是否在url()函数中
+			if strings.Contains(line[:pos], "url(") && !strings.Contains(line[:pos], ")") {
+				return true
+			}
+			// 检查是否在content属性中
+			if strings.Contains(line[:pos], "content:") {
+				return true
+			}
+		}
+	case "html", "xml", "svg":
+		// HTML/XML中保护属性值和CDATA中的注释符号
+		if commentStart == "<!--" {
+			// 检查是否在CDATA中
+			if strings.Contains(line[:pos], "<![CDATA[") && !strings.Contains(line[:pos], "]]>") {
+				return true
+			}
+		}
+	case "javascript", "typescript", "jsx", "tsx", "js", "ts":
+		// JavaScript中保护正则表达式和模板字符串
+		if commentStart == "//" || commentStart == "/*" {
+			beforeComment := line[:pos]
+			// 保护正则表达式 /pattern/
+			if strings.Contains(beforeComment, "= /") || strings.Contains(beforeComment, "(/") {
+				return true
+			}
+			// 保护模板字符串 `template`
+			backtickCount := strings.Count(beforeComment, "`")
+			if backtickCount%2 == 1 {
+				return true
+			}
+		}
+	case "go", "c", "cpp", "java", "c#", "cs":
+		// 保护条件语句和不完整的语句
+		if commentStart == "//" || commentStart == "/*" {
+			beforeComment := strings.TrimSpace(line[:pos])
+			// 保护不完整的条件语句
+			if strings.Contains(beforeComment, "if ") && !strings.Contains(beforeComment, "{") {
+				return true
+			}
+			if strings.Contains(beforeComment, "for ") && !strings.Contains(beforeComment, "{") {
+				return true
+			}
+			if strings.Contains(beforeComment, "while ") && !strings.Contains(beforeComment, "{") {
+				return true
+			}
+			// 保护包含 != 的语句
+			if strings.Contains(beforeComment, "!=") && !strings.Contains(beforeComment, "{") {
+				return true
+			}
+		}
+	case "python":
+		// Python中保护docstring和f-string
+		if commentStart == "#" {
+			// 检查是否在f-string中
+			if strings.Contains(line[:pos], "f\"") || strings.Contains(line[:pos], "f'") {
+				return true
+			}
+		}
+	case "shell", "bash", "zsh":
+		// Shell脚本中保护shebang和特殊变量
+		if commentStart == "#" {
+			// 保护shebang
+			if pos == 0 && strings.HasPrefix(line, "#!") {
+				return true
+			}
+			// 保护变量替换中的#
+			beforeComment := line[:pos]
+			if strings.Contains(beforeComment, "${") && !strings.Contains(beforeComment, "}") {
+				return true
+			}
+		}
+	case "sql":
+		// SQL中保护字符串和标识符
+		if commentStart == "--" || commentStart == "/*" {
+			// 已经通过通用字符串保护处理
+		}
+	}
+	return false
 }
 
-// removeJsonComments 处理 JSON 文件 - 删除 // 和 /* */ 注释
-func removeJsonComments(content string) string {
+// removeCommentsByRules 通用注释删除函数
+func removeCommentsByRules(content string, fileType string, rules []CommentRule) string {
 	lines := strings.Split(content, "\n")
 	var result []string
 	inBlockComment := false
+	inCodeBlock := false
+	inTemplateString := false
+	currentBlockEnd := ""
 	
 	for _, line := range lines {
+		originalLine := line
 		processedLine := line
 		
+		// Markdown特殊处理：检测代码块
+		if fileType == "markdown" {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "```") {
+				inCodeBlock = !inCodeBlock
+				result = append(result, line)
+				continue
+			}
+			if inCodeBlock {
+				result = append(result, line)
+				continue
+			}
+		}
+		
+		// JavaScript特殊处理：检测模板字符串
+		if fileType == "javascript" || fileType == "typescript" || fileType == "js" || fileType == "ts" {
+			backtickCount := strings.Count(line, "`")
+			if backtickCount > 0 {
+				for i := 0; i < backtickCount; i++ {
+					inTemplateString = !inTemplateString
+				}
+			}
+			if inTemplateString {
+				result = append(result, line)
+				continue
+			}
+		}
+		
+		// 处理跨行块注释
 		if inBlockComment {
-			if endIndex := strings.Index(line, "*/"); endIndex != -1 {
-				processedLine = line[endIndex+2:]
+			if endIndex := strings.Index(line, currentBlockEnd); endIndex != -1 {
+				processedLine = line[endIndex+len(currentBlockEnd):]
 				inBlockComment = false
+				currentBlockEnd = ""
 			} else {
 				continue
 			}
 		}
 		
-		// 处理行注释 //
-		if idx := strings.Index(processedLine, "//"); idx != -1 && !isInString(processedLine, idx) {
-			processedLine = strings.TrimRight(processedLine[:idx], " \t")
-		}
-		
-		// 处理块注释 /* */
-		for {
-			startIdx := strings.Index(processedLine, "/*")
-			if startIdx == -1 || isInString(processedLine, startIdx) {
-				break
-			}
-			
-			endIdx := strings.Index(processedLine[startIdx:], "*/")
-			if endIdx != -1 {
-				endIdx += startIdx + 2
-				processedLine = processedLine[:startIdx] + processedLine[endIdx:]
+		// 应用注释规则
+		for _, rule := range rules {
+			if rule.IsLineComment {
+				// 处理行注释
+				for i := 0; i <= len(processedLine)-len(rule.StartPattern); i++ {
+					if strings.HasPrefix(processedLine[i:], rule.StartPattern) {
+						// 检查是否在字符串中
+						if isInString(processedLine, i) {
+							continue
+						}
+						// 检查是否需要保护
+						if shouldProtectInContext(processedLine, i, fileType, rule.StartPattern) {
+							continue
+						}
+						// 删除行注释
+						processedLine = strings.TrimRight(processedLine[:i], " \t")
+						break
+					}
+				}
 			} else {
-				processedLine = processedLine[:startIdx]
-				inBlockComment = true
-				break
+				// 处理块注释
+				for {
+					startIdx := strings.Index(processedLine, rule.StartPattern)
+					if startIdx == -1 {
+						break
+					}
+					// 检查是否在字符串中
+					if isInString(processedLine, startIdx) {
+						break
+					}
+					// 检查是否需要保护
+					if shouldProtectInContext(processedLine, startIdx, fileType, rule.StartPattern) {
+						break
+					}
+					
+					endIdx := strings.Index(processedLine[startIdx:], rule.EndPattern)
+					if endIdx != -1 {
+						// 同一行内的块注释
+						endIdx += startIdx + len(rule.EndPattern)
+						processedLine = processedLine[:startIdx] + processedLine[endIdx:]
+					} else {
+						// 跨行块注释开始
+						processedLine = processedLine[:startIdx]
+						inBlockComment = true
+						currentBlockEnd = rule.EndPattern
+						break
+					}
+				}
 			}
 		}
 		
-		result = append(result, processedLine)
+		// 保留非空行或原本就是空行的行
+		if strings.TrimSpace(processedLine) != "" || strings.TrimSpace(originalLine) == "" {
+			result = append(result, processedLine)
+		}
 	}
 	
 	return strings.Join(result, "\n")
 }
 
-// removeXmlComments 处理 XML/HTML 文件 - 只删除 <!-- --> 注释
+// removeMarkdownComments 处理 Markdown 文件
+func removeMarkdownComments(content string) string {
+	rules := []CommentRule{
+		{StartPattern: "<!--", EndPattern: "-->", IsLineComment: false},
+	}
+	return removeCommentsByRules(content, "markdown", rules)
+}
+
+// removeYamlComments 处理 YAML 文件
+func removeYamlComments(content string) string {
+	rules := []CommentRule{
+		{StartPattern: "#", EndPattern: "", IsLineComment: true},
+	}
+	return removeCommentsByRules(content, "yaml", rules)
+}
+
+// removeJsonComments 处理 JSON 文件
+func removeJsonComments(content string) string {
+	rules := []CommentRule{
+		{StartPattern: "//", EndPattern: "", IsLineComment: true},
+		{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
+	}
+	return removeCommentsByRules(content, "json", rules)
+}
+
+// removeXmlComments 处理 XML/HTML 文件
 func removeXmlComments(content string) string {
-	lines := strings.Split(content, "\n")
-	var result []string
-	inComment := false
-	
-	for _, line := range lines {
-		processedLine := line
-		
-		if inComment {
-			if endIndex := strings.Index(line, "-->"); endIndex != -1 {
-				processedLine = line[endIndex+3:]
-				inComment = false
-			} else {
-				continue
-			}
-		}
-		
-		// 处理 HTML 注释
-		for {
-			startIdx := strings.Index(processedLine, "<!--")
-			if startIdx == -1 {
-				break
-			}
-			
-			endIdx := strings.Index(processedLine[startIdx:], "-->")
-			if endIdx != -1 {
-				endIdx += startIdx + 3
-				processedLine = processedLine[:startIdx] + processedLine[endIdx:]
-			} else {
-				processedLine = processedLine[:startIdx]
-				inComment = true
-				break
-			}
-		}
-		
-		result = append(result, processedLine)
+	rules := []CommentRule{
+		{StartPattern: "<!--", EndPattern: "-->", IsLineComment: false},
 	}
-	
-	return strings.Join(result, "\n")
+	return removeCommentsByRules(content, "xml", rules)
 }
 
-// removeCssComments 处理 CSS 文件 - 只删除 /* */ 注释
+// removeCssComments 处理 CSS 文件
 func removeCssComments(content string) string {
-	lines := strings.Split(content, "\n")
-	var result []string
-	inComment := false
-	
-	for _, line := range lines {
-		processedLine := line
-		
-		if inComment {
-			if endIndex := strings.Index(line, "*/"); endIndex != -1 {
-				processedLine = line[endIndex+2:]
-				inComment = false
-			} else {
-				continue
-			}
-		}
-		
-		// 处理块注释 /* */
-		for {
-			startIdx := strings.Index(processedLine, "/*")
-			if startIdx == -1 {
-				break
-			}
-			
-			endIdx := strings.Index(processedLine[startIdx:], "*/")
-			if endIdx != -1 {
-				endIdx += startIdx + 2
-				processedLine = processedLine[:startIdx] + processedLine[endIdx:]
-			} else {
-				processedLine = processedLine[:startIdx]
-				inComment = true
-				break
-			}
-		}
-		
-		result = append(result, processedLine)
+	rules := []CommentRule{
+		{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
 	}
-	
-	return strings.Join(result, "\n")
+	return removeCommentsByRules(content, "css", rules)
+}
+
+// removeGoComments 处理 Go 文件
+func removeGoComments(content string) string {
+	rules := []CommentRule{
+		{StartPattern: "//", EndPattern: "", IsLineComment: true},
+		{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
+	}
+	return removeCommentsByRules(content, "go", rules)
 }
 
 // removeComments 根据文件类型智能删除注释
@@ -663,20 +869,35 @@ func removeComments(content string, fileType string) string {
 	switch fileType {
 	case "markdown":
 		return removeMarkdownComments(content)
-	case "yaml":
+	case "yaml", "yml":
 		return removeYamlComments(content)
-	case "json":
+	case "json", "jsonc", "json5":
 		return removeJsonComments(content)
-	case "xml", "html":
+	case "xml", "html", "htm", "svg":
 		return removeXmlComments(content)
-	case "css":
+	case "css", "scss", "sass", "less", "styl":
 		return removeCssComments(content)
+	case "go":
+		return removeGoComments(content)
+	case "javascript", "typescript", "js", "ts", "jsx", "tsx":
+		rules := []CommentRule{
+			{StartPattern: "//", EndPattern: "", IsLineComment: true},
+			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
+		}
+		return removeCommentsByRules(content, fileType, rules)
+	case "c", "cpp", "cc", "cxx", "h", "hpp", "cs", "java", "scala", "kt", "groovy":
+		rules := []CommentRule{
+			{StartPattern: "//", EndPattern: "", IsLineComment: true},
+			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
+		}
+		return removeCommentsByRules(content, fileType, rules)
 	}
 	
 	lines := strings.Split(content, "\n")
 	var result []string
 	inBlockComment := false
 	inHTMLComment := false
+	inBacktickString := false // 跟踪反引号字符串状态
 
 	for _, line := range lines {
 		originalLine := line
@@ -704,7 +925,17 @@ func removeComments(content string, fileType string) string {
 			}
 		}
 		
-		if !inBlockComment && !inHTMLComment {
+		// 更新反引号字符串状态
+		for i, char := range processedLine {
+			if char == '`' && !inBlockComment && !inHTMLComment {
+				// 检查是否在其他类型的字符串中
+				if !isInQuoteString(processedLine, i) {
+					inBacktickString = !inBacktickString
+				}
+			}
+		}
+		
+		if !inBlockComment && !inHTMLComment && !inBacktickString {
 			// 找到最早的注释位置，避免冲突
 			earliestCommentPos := len(processedLine)
 			
@@ -728,43 +959,55 @@ func removeComments(content string, fileType string) string {
 				}
 			}
 			
-			// 检查Python/Shell风格行注释 #
+			// 检查Python/Shell风格行注释 # (只有在非字符串且有实际内容时才处理)
 			for i := 0; i < len(processedLine); i++ {
 				if processedLine[i] == '#' && !isInString(processedLine, i) {
-					if i < earliestCommentPos {
-						earliestCommentPos = i
+					// 确保不是单独的字符
+					if len(strings.TrimSpace(processedLine)) > 1 || i > 0 {
+						if i < earliestCommentPos {
+							earliestCommentPos = i
+						}
+						break
 					}
-					break
 				}
 			}
 			
 			// 检查分号注释 ; (Assembly, Lisp等)
 			for i := 0; i < len(processedLine); i++ {
 				if processedLine[i] == ';' && !isInString(processedLine, i) {
-					if i < earliestCommentPos {
-						earliestCommentPos = i
+					// 确保不是单独的字符
+					if len(strings.TrimSpace(processedLine)) > 1 || i > 0 {
+						if i < earliestCommentPos {
+							earliestCommentPos = i
+						}
+						break
 					}
-					break
 				}
 			}
 			
 			// 检查百分号注释 % (LaTeX, MATLAB等)
 			for i := 0; i < len(processedLine); i++ {
 				if processedLine[i] == '%' && !isInString(processedLine, i) {
-					if i < earliestCommentPos {
-						earliestCommentPos = i
+					// 确保不是单独的字符
+					if len(strings.TrimSpace(processedLine)) > 1 || i > 0 {
+						if i < earliestCommentPos {
+							earliestCommentPos = i
+						}
+						break
 					}
-					break
 				}
 			}
 			
 			// 检查感叹号注释 ! (Fortran等)
 			for i := 0; i < len(processedLine); i++ {
 				if processedLine[i] == '!' && !isInString(processedLine, i) {
-					if i < earliestCommentPos {
-						earliestCommentPos = i
+					// 确保不是单独的字符
+					if len(strings.TrimSpace(processedLine)) > 1 || i > 0 {
+						if i < earliestCommentPos {
+							earliestCommentPos = i
+						}
+						break
 					}
-					break
 				}
 			}
 			
@@ -840,7 +1083,50 @@ func removeComments(content string, fileType string) string {
 	return strings.Join(result, "\n")
 }
 
-// isInString 检查指定位置是否在字符串字面量内
+// isInQuoteString 检查指定位置是否在单引号或双引号字符串内（不包括反引号）
+func isInQuoteString(line string, pos int) bool {
+	if pos >= len(line) {
+		return false
+	}
+	
+	var inSingleQuote, inDoubleQuote bool
+	lineBytes := []byte(line)
+	
+	for i := 0; i <= pos && i < len(lineBytes); i++ {
+		char := lineBytes[i]
+		
+		switch char {
+		case '\'':
+			if !inDoubleQuote {
+				backslashCount := 0
+				for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
+					backslashCount++
+				}
+				if backslashCount%2 == 0 {
+					inSingleQuote = !inSingleQuote
+				}
+			}
+		case '"':
+			if !inSingleQuote {
+				backslashCount := 0
+				for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
+					backslashCount++
+				}
+				if backslashCount%2 == 0 {
+					inDoubleQuote = !inDoubleQuote
+				}
+			}
+		}
+		
+		if i == pos {
+			return inSingleQuote || inDoubleQuote
+		}
+	}
+	
+	return inSingleQuote || inDoubleQuote
+}
+
+// isInString 检查指定位置是否在字符串字面量内（优化版本）
 func isInString(line string, pos int) bool {
 	if pos >= len(line) {
 		return false
@@ -848,15 +1134,18 @@ func isInString(line string, pos int) bool {
 	
 	var inSingleQuote, inDoubleQuote, inBacktick bool
 	
-	for i := 0; i <= pos && i < len(line); i++ {
-		char := line[i]
+	// 优化：使用字节切片避免重复的字符串索引
+	lineBytes := []byte(line)
+	
+	for i := 0; i <= pos && i < len(lineBytes); i++ {
+		char := lineBytes[i]
 		
 		switch char {
 		case '\'':
 			if !inDoubleQuote && !inBacktick {
-				// 检查前面连续反斜杠的数量
+				// 优化：直接计算反斜杠数量，避免重复循环
 				backslashCount := 0
-				for j := i - 1; j >= 0 && line[j] == '\\'; j-- {
+				for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
 					backslashCount++
 				}
 				// 如果反斜杠数量为偶数，引号未被转义
@@ -866,9 +1155,9 @@ func isInString(line string, pos int) bool {
 			}
 		case '"':
 			if !inSingleQuote && !inBacktick {
-				// 检查前面连续反斜杠的数量
+				// 优化：直接计算反斜杠数量，避免重复循环
 				backslashCount := 0
-				for j := i - 1; j >= 0 && line[j] == '\\'; j-- {
+				for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
 					backslashCount++
 				}
 				// 如果反斜杠数量为偶数，引号未被转义
@@ -892,25 +1181,38 @@ func isInString(line string, pos int) bool {
 }
 
 // processFile 处理单个文件，删除其中的注释
-func processFile(filePath string) error {
-	if verbose {
-		fmt.Printf("处理文件: %s\n", filePath)
-	}
-	
+func processFile(filePath, workingDir string) error {
 	// 读取文件内容
 	content, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("读取文件失败: %v", err)
 	}
 	
+	// 安全检查
+	if err := isFileSafe(filePath, content, forceMode); err != nil {
+		printWarning("跳过 %s (二进制文件)", filePath)
+		skippedFiles = append(skippedFiles, filePath)
+		return nil // 跳过
+	}
+	
 	// 检测文件类型
 	fileType := detectFileType(filePath)
-	if verbose {
-		fmt.Printf("检测到文件类型: %s\n", fileType)
+	
+	// 创建备份
+	if err := createBackup(filePath, workingDir); err != nil {
+		return fmt.Errorf("创建备份失败: %v", err)
 	}
 	
 	// 删除注释
 	newContent := removeComments(string(content), fileType)
+	
+	// 检查是否有变化
+	if newContent == string(content) {
+		// 删除不必要的备份
+		os.Remove(filePath + ".backup")
+		fmt.Printf(ColorBlue+"%-40s"+ColorReset+" |%s| "+ColorYellow+"无变化\n"+ColorReset, filePath, strings.ToUpper(fileType))
+		return nil
+	}
 	
 	// 写回文件
 	err = os.WriteFile(filePath, []byte(newContent), 0644)
@@ -918,9 +1220,8 @@ func processFile(filePath string) error {
 		return fmt.Errorf("写入文件失败: %v", err)
 	}
 	
-	if verbose {
-		fmt.Printf("✓ 已处理: %s\n", filePath)
-	}
+	fmt.Printf(ColorGreen+"%-40s"+ColorReset+" |%s| "+ColorGreen+"✓\n"+ColorReset, filePath, strings.ToUpper(fileType))
+	processedFiles = append(processedFiles, filePath)
 	
 	return nil
 }
@@ -945,6 +1246,11 @@ func processDirectory(dirPath string) error {
 			return err
 		}
 		
+		// 跳过备份目录
+		if d.IsDir() && d.Name() == "bak" {
+			return filepath.SkipDir
+		}
+		
 		// 跳过目录和隐藏文件
 		if d.IsDir() || strings.HasPrefix(d.Name(), ".") {
 			return nil
@@ -956,8 +1262,8 @@ func processDirectory(dirPath string) error {
 		}
 		
 		// 处理文件
-		if err := processFile(path); err != nil {
-			fmt.Printf("❌ 处理文件失败 %s: %v\n", path, err)
+		if err := processFile(path, dirPath); err != nil {
+			printError("处理文件失败 %s: %v", path, err)
 			return nil // 继续处理其他文件
 		}
 		
@@ -969,37 +1275,51 @@ func processDirectory(dirPath string) error {
 		return err
 	}
 	
-	fmt.Printf("✅ 共处理了 %d 个文件\n", processedCount)
+	// 显示处理结果摘要
+	printSummary()
 	return nil
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "fuck-comment",
-	Short: "一键删注释 - 删除代码文件中的所有注释",
-	Long: `fuck-comment 是一个跨平台的CLI工具，用于删除代码文件中的注释。
+	Use:   "fuck-comment [directory]",
+	Short: "删除代码注释的命令行工具",
+	Long: `删除代码文件中的注释，支持137种文件扩展名。
 
 支持的注释格式：
-  // 行注释 (C/C++, Go, Java, JavaScript等)
-  /* 块注释 */ (C/C++, Go, Java, JavaScript等)
-  # 井号注释 (Python, Shell, YAML等)
-  -- 双破折号注释 (SQL, Haskell等)
-  ; 分号注释 (Assembly, Lisp等)
-  % 百分号注释 (LaTeX, MATLAB等)
-  ! 感叹号注释 (Fortran等)
-  <!-- HTML注释 --> (HTML, XML等)
+  //           行注释 (C/C++, Go, Java, JavaScript等)
+  /* */        块注释 (C/C++, Go, Java, JavaScript等)
+  #            井号注释 (Python, Shell, YAML等)
+  --           双破折号注释 (SQL, Haskell等)
+  ;            分号注释 (Assembly, Lisp等)
+  %            百分号注释 (LaTeX, MATLAB等)
+  !            感叹号注释 (Fortran等)
+  <!-- -->     HTML注释 (HTML, XML等)
 
-支持100+种编程语言和文件类型
+安全特性：
+  • 自动备份到 bak/ 目录
+  • 跳过二进制文件
+  • 保护字符串中的注释符号
+  • 保护URL锚点和Shell变量
 
-使用示例：
-  fuck-comment                    # 删除当前目录及子目录所有支持文件的注释
-  fuck-comment -f main.go         # 删除指定文件的注释
-  fuck-comment --force            # 强制删除所有文件的注释（不限文件类型）
-  fuck-comment -v                 # 显示详细处理信息
-  fuck-comment --version          # 显示版本信息`,
+参数说明：
+  -f, --file string    指定要处理的单个文件
+      --force          强制处理所有文件类型（包括二进制文件）
+      --version        显示版本信息
+
+使用示例:
+  fuck-comment              删除当前目录所有支持文件的注释
+  fuck-comment /path/to/dir 删除指定目录及其子目录的注释
+  fuck-comment -f main.go   删除指定文件的注释
+  fuck-comment --force      强制处理所有文件类型
+
+注意事项：
+  • 处理前会自动创建备份，备份文件保存在 bak/ 目录
+  • 默认跳过二进制文件和隐藏文件
+  • 使用 --force 参数可强制处理所有文件类型`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// 显示版本信息
 		if showVersion {
-			fmt.Printf("fuck-comment %s\n", Version)
+			fmt.Printf(ColorBold+ColorCyan+"fuck-comment %s\n"+ColorReset, Version)
 			fmt.Printf("构建时间: %s\n", BuildTime)
 			fmt.Printf("Git提交: %s\n", GitCommit)
 			return
@@ -1007,28 +1327,43 @@ var rootCmd = &cobra.Command{
 		if targetFile != "" {
 			// 处理单个文件
 			if !isSupportedFile(targetFile, forceMode) && !forceMode {
-				fmt.Printf("❌ 不支持的文件类型: %s\n", targetFile)
-				fmt.Println("使用 -force 参数可强制处理所有文件类型")
+				printError("不支持的文件类型: %s", targetFile)
+				fmt.Println("使用 --force 参数可强制处理所有文件类型")
 				os.Exit(1)
 			}
 			
-			if err := processFile(targetFile); err != nil {
-				fmt.Printf("❌ 处理文件失败: %v\n", err)
+			// 获取文件所在目录作为工作目录
+			fileDir := filepath.Dir(targetFile)
+			if err := processFile(targetFile, fileDir); err != nil {
+				printError("处理文件失败: %v", err)
 				os.Exit(1)
 			}
 			
-			fmt.Printf("✅ 文件处理完成: %s\n", targetFile)
+			printSummary()
 		} else {
-			// 处理当前目录
-			currentDir, err := os.Getwd()
-			if err != nil {
-				fmt.Printf("❌ 获取当前目录失败: %v\n", err)
-				os.Exit(1)
+			// 处理目录
+			var targetDir string
+			if len(args) > 0 {
+				// 使用命令行参数指定的目录
+				targetDir = args[0]
+				// 检查目录是否存在
+				if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+					printError("目录不存在: %s", targetDir)
+					os.Exit(1)
+				}
+			} else {
+				// 使用当前目录
+				var err error
+				targetDir, err = os.Getwd()
+				if err != nil {
+					printError("获取当前目录失败: %v", err)
+					os.Exit(1)
+				}
 			}
 			
-			fmt.Printf("🚀 开始处理目录: %s\n", currentDir)
-			if err := processDirectory(currentDir); err != nil {
-				fmt.Printf("❌ 处理目录失败: %v\n", err)
+			fmt.Printf(ColorPurple+"扫描目录: %s\n"+ColorReset, targetDir)
+			if err := processDirectory(targetDir); err != nil {
+				printError("处理目录失败: %v", err)
 				os.Exit(1)
 			}
 		}
@@ -1037,14 +1372,13 @@ var rootCmd = &cobra.Command{
 
 func init() {
 	rootCmd.Flags().StringVarP(&targetFile, "file", "f", "", "指定要处理的单个文件")
-	rootCmd.Flags().BoolVar(&forceMode, "force", false, "强制模式：处理所有文件类型，不限扩展名")
-	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "显示详细处理信息")
+	rootCmd.Flags().BoolVar(&forceMode, "force", false, "强制处理所有文件类型（包括二进制文件）")
 	rootCmd.Flags().BoolVar(&showVersion, "version", false, "显示版本信息")
 }
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Printf("❌ 执行失败: %v\n", err)
+		printError("执行失败: %v", err)
 		os.Exit(1)
 	}
 }

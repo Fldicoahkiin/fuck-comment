@@ -11,7 +11,7 @@
 
 fuck-comment 是一个跨平台命令行工具，用于删除代码文件中的注释。支持8种注释格式，覆盖137个文件扩展名。
 
-### 🔧 支持的编程语言
+### 支持的编程语言
 
 | 语言类别 | 语言 | 扩展名 | 注释格式 |
 |----------|------|--------|----------|
@@ -128,6 +128,46 @@ make build
 go build -o fuck-comment .
 ```
 
+### 安装到系统PATH
+
+为了在任意目录下使用 `fuck-comment` 命令，需要将可执行文件添加到系统PATH中：
+
+#### Linux/macOS
+
+```bash
+# 方法1：复制到系统目录
+sudo cp fuck-comment /usr/local/bin/
+
+# 方法2：添加到用户目录
+mkdir -p ~/bin
+cp fuck-comment ~/bin/
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# 方法3：使用Go install（推荐）
+go install github.com/Fldicoahkiin/fuck-comment@latest
+```
+
+#### Windows
+
+```powershell
+# 方法1：复制到Windows目录
+copy fuck-comment.exe C:\Windows\System32\
+
+# 方法2：添加到用户目录
+mkdir %USERPROFILE%\bin
+copy fuck-comment.exe %USERPROFILE%\bin\
+# 然后手动将 %USERPROFILE%\bin 添加到系统PATH环境变量
+
+# 方法3：使用Go install（推荐）
+go install github.com/Fldicoahkiin/fuck-comment@latest
+```
+
+安装完成后，可以在任意目录下直接使用：
+```bash
+fuck-comment --version
+```
+
 #### 方式三：Docker运行
 
 ```bash
@@ -146,12 +186,14 @@ TARGET_DIR=/path/to/code docker-compose run fuck-comment-process
 
 ### 基本用法
 
+#### 本地执行（未安装到PATH）
+
 ```bash
 # 删除当前目录及子目录所有支持文件的注释
 ./fuck-comment
 
-# 显示详细处理信息
-./fuck-comment -v
+# 删除指定目录及其子目录的注释
+./fuck-comment /path/to/directory
 
 # 删除指定文件的注释
 ./fuck-comment -f main.go
@@ -163,7 +205,26 @@ TARGET_DIR=/path/to/code docker-compose run fuck-comment-process
 ./fuck-comment --help
 ```
 
-## 📚 详细用法
+#### 全局使用（已安装到PATH）
+
+```bash
+# 删除当前目录及子目录所有支持文件的注释
+fuck-comment
+
+# 删除指定目录及其子目录的注释
+fuck-comment /path/to/directory
+
+# 删除指定文件的注释
+fuck-comment -f main.go
+
+# 强制模式：处理所有文件类型（不限扩展名）
+fuck-comment --force
+
+# 查看帮助信息
+fuck-comment --help
+```
+
+## 详细用法
 
 ### 命令行参数
 
@@ -172,7 +233,8 @@ TARGET_DIR=/path/to/code docker-compose run fuck-comment-process
 | `--help` | `-h` | 显示帮助信息 | `fuck-comment -h` |
 | `--file` | `-f` | 指定单个文件 | `fuck-comment -f main.go` |
 | `--force` | | 强制模式，处理所有文件类型 | `fuck-comment --force` |
-| `--verbose` | `-v` | 显示详细处理信息 | `fuck-comment -v` |
+| `--version` | | 显示版本信息 | `fuck-comment --version` |
+| `[directory]` | | 指定要处理的目录 | `fuck-comment /path/to/dir` |
 
 ### 使用示例
 
@@ -182,18 +244,23 @@ TARGET_DIR=/path/to/code docker-compose run fuck-comment-process
 # 进入项目目录
 cd /path/to/your/project
 
-# 删除所有支持文件的注释
-./fuck-comment -v
+# 删除所有支持文件的注释（需要先安装到PATH）
+fuck-comment
+
+# 或者使用本地可执行文件（需要将可执行文件放在当前目录）
+./fuck-comment
 ```
 
 输出示例：
 ```
-🚀 开始处理目录: /path/to/your/project
-处理文件: ./main.go
-✓ 已处理: ./main.go
-处理文件: ./utils/helper.js
-✓ 已处理: ./utils/helper.js
-✅ 共处理了 15 个文件
+扫描目录: /path/to/your/project
+./main.go                                |GO| ✓
+./utils/helper.js                        |JS| ✓
+./src/component.tsx                      |TS| ✓
+./config/settings.yaml                   |YAML| ✓
+⚠ 跳过 ./image.png (二进制文件)
+
+15 处理 | 3 跳过 | 备份: bak/fuck-comment_20240828_143022
 ```
 
 #### 2. 处理单个文件
@@ -203,11 +270,18 @@ cd /path/to/your/project
 ./fuck-comment -f src/main.cpp
 ```
 
-#### 3. 强制模式处理
+#### 3. 处理指定目录
+
+```bash
+# 处理指定目录及其所有子目录
+./fuck-comment /path/to/source/code
+```
+
+#### 4. 强制模式处理
 
 ```bash
 # 处理所有文件，不限文件类型
-./fuck-comment --force -v
+./fuck-comment --force
 ```
 
 ## 注释删除规则
@@ -239,15 +313,19 @@ cd /path/to/your/project
 | `.pp` | Pascal / Puppet | 检测语法特征 |
 | `.v` | Verilog / Vim Script | 检测硬件描述语法 |
 
-### ⚠️ 重要说明
+### 安全特性
 
-**Python Docstring 限制**: 工具不会删除Python的docstring（`"""文档字符串"""`），因为：
-- Docstring在技术上是字符串字面量，不是注释
-- 它们是Python API文档的重要组成部分
-- 可通过`help()`函数和`__doc__`属性访问
-- 许多文档生成工具依赖docstring
+- **自动备份**: 在`bak/`目录创建备份文件（按时间戳分组）
+- **二进制文件保护**: 自动跳过二进制文件，避免数据损坏
+- **文件大小限制**: 单文件100MB，单行50K字符限制
+- **编码安全**: 仅处理UTF-8编码文件
+- **字符串保护**: 不删除字符串内的注释符号
+- **URL锚点保护**: 保护URL中的`#`符号（如`https://example.com#section`）
+- **Shell变量保护**: 保护Shell变量替换中的`#`（如`${VAR#prefix}`）
+- **模板字符串保护**: 保护JavaScript模板字符串内容
+- **正则表达式保护**: 保护正则表达式中的注释符号
 
-如需删除docstring，建议使用专门的Python代码格式化工具。
+**建议**: 重要项目请先小范围测试
 
 ### 处理示例
 
@@ -308,7 +386,6 @@ go test -v
 # 测试覆盖率
 go test -cover
 ```
-
 
 ## 注意事项
 

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRemoveComments(t *testing.T) {
@@ -524,4 +527,337 @@ func BenchmarkIsInString(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		isInString(line, pos)
 	}
+}
+
+// TestBinaryFileDetection 测试二进制文件检测
+func TestBinaryFileDetection(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  []byte
+		expected bool
+	}{
+		{"空文件", []byte{}, false},
+		{"文本文件", []byte("hello world"), false},
+		{"UTF-8文件", []byte("你好世界"), false},
+		{"包含null字节", []byte{0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00, 0x57, 0x6f, 0x72, 0x6c, 0x64}, true},
+		{"无效UTF-8", []byte{0xff, 0xfe, 0xfd}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isBinaryFile(tt.content)
+			if result != tt.expected {
+				t.Errorf("isBinaryFile() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestFileSafety 测试文件安全检查
+func TestFileSafety(t *testing.T) {
+	tests := []struct {
+		name        string
+		filePath    string
+		content     []byte
+		expectError bool
+	}{
+		{"正常文件", "test.go", []byte("package main\nfunc main() {}"), false},
+		{"空文件", "empty.txt", []byte{}, false},
+		{"二进制文件", "binary.bin", []byte{0x00, 0x01, 0x02}, true},
+		{"长行文件", "long.txt", []byte(strings.Repeat("a", 60000)), true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := isFileSafe(tt.filePath, tt.content, false)
+			if (err != nil) != tt.expectError {
+				t.Errorf("isFileSafe() error = %v, expectError %v", err, tt.expectError)
+			}
+		})
+	}
+}
+
+// TestSecurityAndPerformance 综合安全性和性能测试
+func TestSecurityAndPerformance(t *testing.T) {
+	// 测试大文件处理性能
+	t.Run("大文件性能测试", func(t *testing.T) {
+		var content strings.Builder
+		for i := 0; i < 5000; i++ {
+			content.WriteString(fmt.Sprintf("// Line %d comment\n", i))
+			content.WriteString(fmt.Sprintf("func test%d() { /* block comment */ return %d }\n", i, i))
+		}
+		
+		start := time.Now()
+		result := removeComments(content.String(), "go")
+		duration := time.Since(start)
+		
+		// 性能要求：处理10000行应该在2秒内完成
+		if duration > 2*time.Second {
+			t.Errorf("性能问题: 处理大文件耗时 %v", duration)
+		}
+		
+		// 验证注释被正确删除
+		if strings.Contains(result, "//") || strings.Contains(result, "/*") {
+			t.Error("大文件中的注释未被完全删除")
+		}
+	})
+
+	// 测试恶意输入处理
+	t.Run("恶意输入测试", func(t *testing.T) {
+		maliciousInputs := []string{
+			strings.Repeat("\"", 10000),     // 大量引号
+			strings.Repeat("\\", 10000),     // 大量反斜杠
+			strings.Repeat("/*", 5000),      // 大量注释开始符
+			strings.Repeat("//", 5000),      // 大量行注释
+			string([]byte{0x00, 0x01, 0x02}), // 二进制数据
+		}
+		
+		for i, input := range maliciousInputs {
+			t.Run(fmt.Sprintf("恶意输入_%d", i), func(t *testing.T) {
+				// 应该不会崩溃或无限循环
+				done := make(chan bool, 1)
+				go func() {
+					defer func() {
+						if r := recover(); r != nil {
+							t.Errorf("处理恶意输入时发生panic: %v", r)
+						}
+						done <- true
+					}()
+					removeComments(input, "go")
+				}()
+				
+				select {
+				case <-done:
+					// 正常完成
+				case <-time.After(5 * time.Second):
+					t.Error("处理恶意输入超时，可能存在无限循环")
+				}
+			})
+		}
+	})
+
+	// 测试备份机制
+	t.Run("备份机制测试", func(t *testing.T) {
+		// 创建临时文件
+		tmpFile, err := ioutil.TempFile("", "test_backup_*.txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(tmpFile.Name())
+		defer func() {
+			// 清理可能的备份文件
+			os.RemoveAll("bak")
+		}()
+		
+		testContent := "// This is a test\nfunc main() {}"
+		tmpFile.WriteString(testContent)
+		tmpFile.Close()
+		
+		// 创建备份
+		err = createBackup(tmpFile.Name())
+		if err != nil {
+			t.Errorf("创建备份失败: %v", err)
+		}
+		
+		// 验证备份文件存在且内容正确
+		// 新的备份机制会在bak/时间戳目录下创建备份
+		workDir, _ := os.Getwd()
+		bakDir := filepath.Join(workDir, "bak")
+		
+		// 查找备份文件
+		var backupPath string
+		filepath.Walk(bakDir, func(path string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() && strings.Contains(path, filepath.Base(tmpFile.Name())) {
+				backupPath = path
+			}
+			return nil
+		})
+		
+		if backupPath == "" {
+			t.Error("备份文件未找到")
+			return
+		}
+		
+		backupContent, err := ioutil.ReadFile(backupPath)
+		if err != nil {
+			t.Errorf("读取备份文件失败: %v", err)
+		}
+		
+		if string(backupContent) != testContent {
+			t.Error("备份文件内容不正确")
+		}
+		
+		// 测试重复备份
+		err = createBackup(tmpFile.Name())
+		if err != nil {
+			t.Errorf("重复备份失败: %v", err)
+		}
+	})
+
+	// 测试字符串检测性能
+	t.Run("字符串检测性能", func(t *testing.T) {
+		// 创建复杂的字符串测试用例
+		complexLine := `fmt.Printf("Complex string with \"nested quotes\" and \\ backslashes") // comment`
+		
+		start := time.Now()
+		for i := 0; i < 10000; i++ {
+			isInString(complexLine, 50)
+		}
+		duration := time.Since(start)
+		
+		// 性能要求：10000次调用应该在100ms内完成
+		if duration > 100*time.Millisecond {
+			t.Errorf("字符串检测性能问题: 10000次调用耗时 %v", duration)
+		}
+	})
+
+	// 测试内存使用
+	t.Run("内存使用测试", func(t *testing.T) {
+		// 创建大量小文件内容
+		var contents []string
+		for i := 0; i < 1000; i++ {
+			content := fmt.Sprintf("// File %d\nfunc test%d() { /* comment */ }\n", i, i)
+			contents = append(contents, content)
+		}
+		
+		// 处理所有内容
+		start := time.Now()
+		for _, content := range contents {
+			removeComments(content, "go")
+		}
+		duration := time.Since(start)
+		
+		// 性能要求：处理1000个小文件应该在1秒内完成
+		if duration > time.Second {
+			t.Errorf("内存使用可能有问题: 处理1000个小文件耗时 %v", duration)
+		}
+	})
+}
+
+// TestEdgeCasesAndBoundaries 边界条件和特殊情况测试
+func TestEdgeCasesAndBoundaries(t *testing.T) {
+	// 测试空输入
+	t.Run("空输入处理", func(t *testing.T) {
+		result := removeComments("", "go")
+		if result != "" {
+			t.Error("空输入应该返回空字符串")
+		}
+	})
+
+	// 测试单字符输入
+	t.Run("单字符输入", func(t *testing.T) {
+		inputs := []string{"/", "*", "#", "-", ";", "%", "!", "<"}
+		for _, input := range inputs {
+			result := removeComments(input, "go")
+			// 单独的注释符号应该被保留，因为它们可能是代码的一部分
+			if result != input {
+				t.Errorf("单字符输入 %q 处理错误: got %q", input, result)
+			}
+		}
+	})
+
+	// 测试极长行
+	t.Run("极长行处理", func(t *testing.T) {
+		longLine := strings.Repeat("a", 1000) + " // comment"
+		result := removeComments(longLine, "go")
+		// 检查注释是否被删除
+		if strings.Contains(result, "//") || strings.Contains(result, "comment") {
+			t.Error("注释未被正确删除")
+		}
+		// 检查基本内容是否保留
+		if !strings.HasPrefix(result, strings.Repeat("a", 1000)) {
+			t.Error("极长行处理错误: 基本内容未正确保留")
+		}
+	})
+
+	// 测试嵌套引号
+	t.Run("深度嵌套引号", func(t *testing.T) {
+		nested := `"level1 \"level2 \\\"level3\\\" level2\" level1"`
+		for i := 0; i < len(nested); i++ {
+			// 不应该崩溃
+			isInString(nested, i)
+		}
+	})
+
+	// 测试所有支持的文件类型
+	t.Run("所有文件类型测试", func(t *testing.T) {
+		fileTypes := []string{"go", "javascript", "python", "java", "css", "html", "yaml", "json", "markdown"}
+		testContent := "// comment\ncode here /* block */ more code"
+		
+		for _, fileType := range fileTypes {
+			result := removeComments(testContent, fileType)
+			// 应该不会崩溃，且返回非空结果
+			if len(result) == 0 {
+				t.Errorf("文件类型 %s 处理后返回空结果", fileType)
+			}
+		}
+	})
+
+	// 测试危险边界情况，防止删错代码
+	t.Run("危险边界情况", func(t *testing.T) {
+		testCases := []struct {
+			name     string
+			input    string
+			expected string
+			fileType string
+		}{
+			{
+				name:     "URL中的双斜杠",
+				input:    `url := "https://example.com/path"`,
+				expected: `url := "https://example.com/path"`,
+				fileType: "go",
+			},
+			{
+				name:     "正则表达式中的注释符号",
+				input:    `pattern := "/\\*.*?\\*/"`,
+				expected: `pattern := "/\\*.*?\\*/"`,
+				fileType: "go",
+			},
+			{
+				name:     "字符串中的转义引号和注释",
+				input:    `msg := "He said \"Hello // World\""`,
+				expected: `msg := "He said \"Hello // World\""`,
+				fileType: "go",
+			},
+			{
+				name:     "多行字符串中的注释符号",
+				input:    "text := `\nThis is // not a comment\n/* also not */\n`",
+				expected: "text := `\nThis is // not a comment\n/* also not */\n`",
+				fileType: "go",
+			},
+			{
+				name:     "数学运算符",
+				input:    "result := a / b * c // actual comment",
+				expected: "result := a / b * c",
+				fileType: "go",
+			},
+			{
+				name:     "Shell脚本中的特殊情况",
+				input:    `echo "Price: $10 # not a comment"`,
+				expected: `echo "Price: $10 # not a comment"`,
+				fileType: "shell",
+			},
+			{
+				name:     "CSS中的伪类选择器",
+				input:    "a:hover /* comment */ { color: red; }",
+				expected: "a:hover  { color: red; }",
+				fileType: "css",
+			},
+			{
+				name:     "HTML属性中的特殊字符",
+				input:    `<div data-comment="/* not a comment */">`,
+				expected: `<div data-comment="/* not a comment */">`,
+				fileType: "html",
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				result := removeComments(tc.input, tc.fileType)
+				if result != tc.expected {
+					t.Errorf("输入: %q\n期望: %q\n实际: %q", tc.input, tc.expected, result)
+				}
+			})
+		}
+	})
 }
