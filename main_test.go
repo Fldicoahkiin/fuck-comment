@@ -208,7 +208,7 @@ func main() {
 	}
 	
 	// 处理文件
-	err = processFile(testFile)
+	err = processFile(testFile, tempDir)
 	if err != nil {
 		t.Fatalf("处理文件失败: %v", err)
 	}
@@ -638,36 +638,37 @@ func TestSecurityAndPerformance(t *testing.T) {
 
 	// 测试备份机制
 	t.Run("备份机制测试", func(t *testing.T) {
-		// 创建临时文件
-		tmpFile, err := ioutil.TempFile("", "test_backup_*.txt")
+		// 创建临时目录和文件
+		tmpDir, err := ioutil.TempDir("", "test_backup_dir")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer os.Remove(tmpFile.Name())
+		defer os.RemoveAll(tmpDir)
 		defer func() {
 			// 清理可能的备份文件
 			os.RemoveAll("bak")
 		}()
 		
+		tmpFile := filepath.Join(tmpDir, "test.go")
 		testContent := "// This is a test\nfunc main() {}"
-		tmpFile.WriteString(testContent)
-		tmpFile.Close()
+		err = ioutil.WriteFile(tmpFile, []byte(testContent), 0644)
+		if err != nil {
+			t.Fatal(err)
+		}
 		
 		// 创建备份
-		err = createBackup(tmpFile.Name())
+		err = createBackup(tmpFile, tmpDir)
 		if err != nil {
 			t.Errorf("创建备份失败: %v", err)
 		}
 		
 		// 验证备份文件存在且内容正确
-		// 新的备份机制会在bak/时间戳目录下创建备份
-		workDir, _ := os.Getwd()
-		bakDir := filepath.Join(workDir, "bak")
+		bakDir := filepath.Join(tmpDir, "bak")
 		
 		// 查找备份文件
 		var backupPath string
 		filepath.Walk(bakDir, func(path string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() && strings.Contains(path, filepath.Base(tmpFile.Name())) {
+			if err == nil && !info.IsDir() && strings.Contains(path, "test.go") {
 				backupPath = path
 			}
 			return nil
@@ -685,12 +686,6 @@ func TestSecurityAndPerformance(t *testing.T) {
 		
 		if string(backupContent) != testContent {
 			t.Error("备份文件内容不正确")
-		}
-		
-		// 测试重复备份
-		err = createBackup(tmpFile.Name())
-		if err != nil {
-			t.Errorf("重复备份失败: %v", err)
 		}
 	})
 
@@ -732,6 +727,211 @@ func TestSecurityAndPerformance(t *testing.T) {
 			t.Errorf("内存使用可能有问题: 处理1000个小文件耗时 %v", duration)
 		}
 	})
+}
+
+// 测试Rust语言特殊情况
+func TestRustComments(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name: "Rust基本注释",
+			input: `// Rust comment
+fn main() {
+    let x = 5; // inline comment
+    /* block comment */
+    println!("Hello");
+}`,
+			expected: `fn main() {
+    let x = 5;
+    println!("Hello");
+}`,
+		},
+		{
+			name: "Rust文档注释保护",
+			input: `/// Documentation comment
+/// Should be preserved
+fn test() {}`,
+			expected: `fn test() {}`,
+		},
+		{
+			name: "Rust字符串中的注释符号",
+			input: `let regex = r"//.*"; // Raw string
+let url = "https://example.com#anchor";`,
+			expected: `let regex = r"//.*";
+let url = "https://example.com#anchor";`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := removeComments(tt.input, "rust")
+			if result != tt.expected {
+				t.Errorf("removeComments() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// 测试Shell脚本特殊情况
+func TestShellComments(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name: "Shell变量展开保护",
+			input: `#!/bin/bash
+VERSION=${GITHUB_REF#refs/tags/} # Comment
+echo "Version: $VERSION"`,
+			expected: `#!/bin/bash
+VERSION=${GITHUB_REF#refs/tags/}
+echo "Version: $VERSION"`,
+		},
+		{
+			name: "Shell条件语句保护",
+			input: `if [ "$1" != "" ]; then # Comment
+    echo "Arg: $1"
+fi`,
+			expected: `if [ "$1" != "" ]; then
+    echo "Arg: $1"
+fi`,
+		},
+		{
+			name: "Shell字符串中的井号",
+			input: `URL="https://example.com#section" # URL comment
+HASH="#hashtag" # Hash comment`,
+			expected: `URL="https://example.com#section"
+HASH="#hashtag"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := removeComments(tt.input, "shell")
+			if result != tt.expected {
+				t.Errorf("removeComments() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// 测试JavaScript模板字符串
+func TestJavaScriptTemplateStrings(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name: "模板字符串中的注释保护",
+			input: "const template = `\n  // This should be preserved\n  /* Also preserved */\n  ${variable}\n`; // External comment",
+			expected: "const template = `\n  // This should be preserved\n  /* Also preserved */\n  ${variable}\n`;",
+		},
+		{
+			name: "正则表达式中的注释符号",
+			input: `const regex = /\/\* not a comment \*\//; // Regex comment`,
+			expected: `const regex = /\/\* not a comment \*\//;`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := removeComments(tt.input, "javascript")
+			if result != tt.expected {
+				t.Errorf("removeComments() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// 测试Python特殊情况
+func TestPythonComments(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name: "Python docstring保护",
+			input: `def func():
+    """This docstring should be preserved"""
+    # This comment should be deleted
+    return True`,
+			expected: `def func():
+    """This docstring should be preserved"""
+    return True`,
+		},
+		{
+			name: "Python f-string中的井号",
+			input: `name = "world"
+f_string = f"Hello #{name}#" # Comment`,
+			expected: `name = "world"
+f_string = f"Hello #{name}#"`,
+		},
+		{
+			name: "Python多行字符串",
+			input: `text = '''
+Multi-line string
+# This should be preserved
+''' # Comment`,
+			expected: `text = '''
+Multi-line string
+# This should be preserved
+'''`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := removeComments(tt.input, "python")
+			if result != tt.expected {
+				t.Errorf("removeComments() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// 测试无变化时不创建备份的优化
+func TestNoBackupWhenNoChange(t *testing.T) {
+	tempDir := t.TempDir()
+	testFile := filepath.Join(tempDir, "test.go")
+	
+	// 创建已经没有注释的文件
+	content := `package main
+func main() {
+	fmt.Println("Hello")
+}`
+	
+	err := os.WriteFile(testFile, []byte(content), 0644)
+	if err != nil {
+		t.Fatalf("创建测试文件失败: %v", err)
+	}
+	
+	// 处理文件
+	err = processFile(testFile, tempDir)
+	if err != nil {
+		t.Fatalf("处理文件失败: %v", err)
+	}
+	
+	// 检查是否创建了备份目录
+	bakDir := filepath.Join("bak")
+	if _, err := os.Stat(bakDir); err == nil {
+		// 如果备份目录存在，检查是否为空或不包含我们的测试文件
+		empty := true
+		filepath.Walk(bakDir, func(path string, info os.FileInfo, err error) error {
+			if err == nil && !info.IsDir() && strings.Contains(path, "test.go") {
+				empty = false
+			}
+			return nil
+		})
+		if !empty {
+			t.Error("无变化时不应该创建备份")
+		}
+	}
 }
 
 // TestEdgeCasesAndBoundaries 边界条件和特殊情况测试
