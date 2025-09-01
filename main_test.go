@@ -351,7 +351,7 @@ func TestRemoveMarkdownComments(t *testing.T) {
 
 ### 三级标题`
 
-	expected := "# 标题\n正文内容\n## 二级标题\n### 三级标题"
+	expected := "# 标题\n\n正文内容\n\n## 二级标题\n\n\n### 三级标题"
 
 	result := removeComments(input, "markdown")
 	assertStringEqual(t, expected, result, "removeMarkdownComments")

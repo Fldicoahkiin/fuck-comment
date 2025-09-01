@@ -1025,6 +1025,12 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 		originalLine := line
 		processedLine := line
 		
+		// 如果是空行，直接保留
+		if strings.TrimSpace(line) == "" {
+			result = append(result, line)
+			continue
+		}
+		
 		// 检查多行字符串状态
 		if fileType == "go" || fileType == "javascript" || fileType == "typescript" {
 			// 检查反引号字符串，需要考虑转义
@@ -1189,18 +1195,21 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 		// 如果在块注释中
 		if inBlockComment {
 			if pos := strings.Index(processedLine, blockEndPattern); pos != -1 {
-				processedLine = processedLine[pos+len(blockEndPattern):]
+				// 找到块注释结束，保留结束后的内容
+				afterComment := processedLine[pos+len(blockEndPattern):]
 				inBlockComment = false
-				// 如果结束后还有内容，继续处理
-				if strings.TrimSpace(processedLine) != "" {
+				
+				// 如果结束后还有内容，继续处理这部分内容
+				if strings.TrimSpace(afterComment) != "" {
 					// 递归处理剩余内容
-					remaining := removeCommentsByRules(processedLine, fileType, rules)
+					remaining := removeCommentsByRules(afterComment, fileType, rules)
 					result = append(result, remaining)
 				} else {
+					// 块注释结束后没有内容，这一行变成空行
 					result = append(result, "")
 				}
 			} else {
-				// 整行都在注释中，跳过
+				// 整行都在块注释中，这一行变成空行
 				result = append(result, "")
 			}
 			continue
@@ -1224,12 +1233,14 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 					}
 				}
 				if pos != -1 {
-					beforeComment := strings.TrimRight(processedLine[:pos], " \t")
-					// 如果注释前只有空白字符，则整行都是注释，应该跳过这一行
-					if beforeComment == "" {
-						processedLine = "" // 标记为空行，后续会被过滤
+					// 保留注释前的内容，但不删除尾部空格（避免截断问题）
+					beforeComment := processedLine[:pos]
+					// 如果注释前只有空白字符，则整行都是注释
+					if strings.TrimSpace(beforeComment) == "" {
+						processedLine = "" // 整行注释，变成空行
 					} else {
-						processedLine = beforeComment
+						// 删除注释但去除尾部空格
+						processedLine = strings.TrimRight(beforeComment, " \t")
 					}
 					break
 				}
@@ -1242,13 +1253,28 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 						
 						// 检查同一行是否有结束标记
 						if endPos := strings.Index(processedLine[pos:], rule.EndPattern); endPos != -1 {
-							afterComment := processedLine[pos+endPos+len(rule.EndPattern):]
-							processedLine = beforeComment + afterComment
+							// 同一行内的块注释
+							actualEndPos := pos + endPos + len(rule.EndPattern)
+							afterComment := processedLine[actualEndPos:]
+							
+							// 合并注释前后的内容，保留原有空格
+							if strings.TrimSpace(beforeComment) == "" && strings.TrimSpace(afterComment) == "" {
+								// 整行都是注释，变成空行
+								processedLine = ""
+							} else {
+								// 保留注释前后的内容和原有空格
+								processedLine = beforeComment + afterComment
+							}
 						} else {
 							// 块注释跨行
 							inBlockComment = true
 							blockEndPattern = rule.EndPattern
-							processedLine = strings.TrimRight(beforeComment, " \t")
+							if strings.TrimSpace(beforeComment) == "" {
+								// 注释前只有空白，整行变成空行
+								processedLine = ""
+							} else {
+								processedLine = beforeComment
+							}
 						}
 						break
 					}
@@ -1259,28 +1285,22 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 		result = append(result, processedLine)
 	}
 	
-	// 清理结果：移除前导和尾随的空行，压缩连续空行
+	// 清理结果：移除由注释产生的空行，但保留原有的空行
 	var finalResult []string
+	originalLines := strings.Split(content, "\n")
 	
-	// 跳过前导空行
-	start := 0
-	for start < len(result) && strings.TrimSpace(result[start]) == "" {
-		start++
-	}
-	
-	// 跳过尾随空行
-	end := len(result) - 1
-	for end >= start && strings.TrimSpace(result[end]) == "" {
-		end--
-	}
-	
-	// 处理中间部分，移除所有空行（为了匹配测试期望）
-	if start <= end {
-		for i := start; i <= end; i++ {
-			line := result[i]
-			if strings.TrimSpace(line) != "" {
+	for i, line := range result {
+		// 如果是空行
+		if strings.TrimSpace(line) == "" {
+			// 检查原始行是否也是空行
+			if i < len(originalLines) && strings.TrimSpace(originalLines[i]) == "" {
+				// 原始行就是空行，保留
 				finalResult = append(finalResult, line)
 			}
+			// 如果原始行不是空行，说明是注释被删除后产生的空行，不保留
+		} else {
+			// 非空行直接添加
+			finalResult = append(finalResult, line)
 		}
 	}
 	
