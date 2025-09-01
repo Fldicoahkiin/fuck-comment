@@ -996,6 +996,18 @@ func getCommentRulesForLanguage(fileType string) []CommentRule {
 			{StartPattern: "C", EndPattern: "", IsLineComment: true},
 			{StartPattern: "c", EndPattern: "", IsLineComment: true},
 		}
+	case "css", "scss", "sass", "less":
+		return []CommentRule{
+			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
+		}
+	case "xml", "html", "htm", "svg", "markdown":
+		return []CommentRule{
+			{StartPattern: "<!--", EndPattern: "-->", IsLineComment: false},
+		}
+	case "yaml", "yml":
+		return hashStyleRules
+	case "json", "jsonc", "json5":
+		return cStyleRules
 	default:
 		return hashStyleRules // 默认使用井号注释
 	}
@@ -1015,10 +1027,11 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 		
 		// 检查多行字符串状态
 		if fileType == "go" || fileType == "javascript" || fileType == "typescript" {
-			// 检查反引号字符串
-			backtickCount := strings.Count(line, "`")
-			if backtickCount%2 == 1 {
-				inMultiLineString = !inMultiLineString
+			// 检查反引号字符串，需要考虑转义
+			for i := 0; i < len(line); i++ {
+				if line[i] == '`' && !isEscaped(line, i) {
+					inMultiLineString = !inMultiLineString
+				}
 			}
 		} else if fileType == "python" || fileType == "py" {
 			// 检查Python三引号字符串
@@ -1139,9 +1152,39 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 		
 		// 如果在多行字符串中，跳过注释处理
 		if inMultiLineString {
-			result = append(result, processedLine)
+			result = append(result, originalLine)
 			continue
 		}
+		
+		// 检查这一行是否结束了模板字符串并有外部注释
+		if fileType == "go" || fileType == "javascript" || fileType == "typescript" {
+			// 查找反引号结束位置
+			lastBacktick := -1
+			for i := 0; i < len(line); i++ {
+				if line[i] == '`' && !isEscaped(line, i) {
+					lastBacktick = i
+				}
+			}
+			
+			// 如果找到反引号且后面有内容，处理外部注释
+			if lastBacktick != -1 && lastBacktick < len(line)-1 {
+				beforeEnd := line[:lastBacktick+1]
+				afterEnd := line[lastBacktick+1:]
+				
+				// 删除外部注释
+				for _, rule := range rules {
+					if rule.IsLineComment {
+						if pos := strings.Index(afterEnd, rule.StartPattern); pos != -1 {
+							afterEnd = strings.TrimRight(afterEnd[:pos], " \t")
+							break
+						}
+					}
+				}
+				
+				processedLine = beforeEnd + afterEnd
+			}
+		}
+		
 		
 		// 如果在块注释中
 		if inBlockComment {
@@ -1244,184 +1287,99 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 	return strings.Join(finalResult, "\n")
 }
 
-// isInBacktickString 检查指定位置是否在反引号字符串内
+// 保留原有函数名作为兼容性包装
 func isInBacktickString(line string, pos int) bool {
-	if pos >= len(line) {
-		return false
-	}
-	
-	backtickCount := 0
-	for i := 0; i < pos && i < len(line); i++ {
-		if line[i] == '`' {
-			backtickCount++
-		}
-	}
-	
-	return backtickCount%2 == 1
+	return isInStringWithType(line, pos, StringTypeBacktick)
 }
 
-// removeMarkdownComments 删除Markdown注释
-func removeMarkdownComments(content string) string {
-	// Markdown使用HTML注释语法
-	return removeXmlComments(content)
-}
-
-// removeYamlComments 删除YAML注释
-func removeYamlComments(content string) string {
-	rules := []CommentRule{
-		{StartPattern: "#", EndPattern: "", IsLineComment: true},
-	}
-	return removeCommentsByRules(content, "yaml", rules)
-}
-
-// removeJsonComments 删除JSON注释
-func removeJsonComments(content string) string {
-	// 标准JSON不支持注释，但JSONC和JSON5支持
-	rules := []CommentRule{
-		{StartPattern: "//", EndPattern: "", IsLineComment: true},
-		{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
-	}
-	return removeCommentsByRules(content, "json", rules)
-}
-
-// removeXmlComments 删除XML/HTML注释
-func removeXmlComments(content string) string {
-	rules := []CommentRule{
-		{StartPattern: "<!--", EndPattern: "-->", IsLineComment: false},
-	}
-	return removeCommentsByRules(content, "xml", rules)
-}
-
-// removeCssComments 删除CSS注释
-func removeCssComments(content string) string {
-	rules := []CommentRule{
-		{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
-	}
-	return removeCommentsByRules(content, "css", rules)
-}
-
-// removeGoComments 删除Go注释
-func removeGoComments(content string) string {
-	rules := []CommentRule{
-		{StartPattern: "//", EndPattern: "", IsLineComment: true},
-		{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
-	}
-	return removeCommentsByRules(content, "go", rules)
+// removeCommentsByFileType 根据文件类型删除注释的统一函数
+func removeCommentsByFileType(content, fileType string) string {
+	rules := getCommentRulesForLanguage(fileType)
+	return removeCommentsByRules(content, fileType, rules)
 }
 
 // removeComments 移除指定文件类型的注释
 func removeComments(content, fileType string) string {
-	// 特殊文件类型使用专门的处理函数
-	switch fileType {
-	case "markdown":
-		return removeMarkdownComments(content)
-	case "yaml", "yml":
-		return removeYamlComments(content)
-	case "json", "jsonc", "json5":
-		return removeJsonComments(content)
-	case "xml", "html", "htm", "svg":
-		return removeXmlComments(content)
-	case "css":
-		return removeCssComments(content)
-	default:
-		// 使用通用规则处理其他语言
-		rules := getCommentRulesForLanguage(fileType)
-		return removeCommentsByRules(content, fileType, rules)
-	}
+	// 统一使用规则处理所有文件类型
+	return removeCommentsByFileType(content, fileType)
 }
 
-// isInQuoteString 检查指定位置是否在单引号或双引号字符串内（不包括反引号）
-func isInQuoteString(line string, pos int) bool {
+// StringType 字符串类型枚举
+type StringType int
+
+const (
+	StringTypeAll StringType = iota // 所有类型字符串
+	StringTypeQuote                 // 仅单双引号字符串
+	StringTypeBacktick              // 仅反引号字符串
+)
+
+// isInStringWithType 统一的字符串检测函数
+func isInStringWithType(line string, pos int, stringType StringType) bool {
 	if pos >= len(line) {
 		return false
 	}
 	
-	var inSingleQuote, inDoubleQuote bool
-	lineBytes := []byte(line)
+	var inSingleQuote, inDoubleQuote, inBacktick bool
 	
-	for i := 0; i < pos && i < len(lineBytes); i++ {
-		char := lineBytes[i]
-		
-		switch char {
-		case '\'':
-			if !inDoubleQuote {
-				// 检查是否被转义
-				backslashCount := 0
-				for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
-					backslashCount++
-				}
-				if backslashCount%2 == 0 {
-					inSingleQuote = !inSingleQuote
-				}
-			}
-		case '"':
-			if !inSingleQuote {
-				// 检查是否是原始字符串 r"..."
-				if i > 0 && lineBytes[i-1] == 'r' {
-					// 原始字符串：跳过整个原始字符串内容，但不改变外部状态
-					for j := i + 1; j < len(lineBytes); j++ {
-						if lineBytes[j] == '"' {
-							// 找到原始字符串的结束引号，跳过它
-							i = j
-							break
-						}
-					}
-					// 原始字符串处理完毕，继续处理后续字符
-				} else {
-					// 普通字符串，检查转义
-					backslashCount := 0
-					for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
-						backslashCount++
-					}
-					if backslashCount%2 == 0 {
-						inDoubleQuote = !inDoubleQuote
-					}
-				}
-			}
-		}
-	}
-	
-	return inSingleQuote || inDoubleQuote
-}
-
-// isInAnyString 检查指定位置是否在任何类型的字符串内（包括原始字符串）
-func isInAnyString(line string, pos int) bool {
-	if pos >= len(line) {
-		return false
-	}
-	
-	var inSingleQuote, inDoubleQuote bool
-	
+	// 检查到pos位置之前的所有字符（不包括pos位置本身）
 	for i := 0; i < pos; i++ {
 		char := line[i]
 		
 		switch char {
 		case '\'':
-			if !inDoubleQuote {
-				// 检查是否被转义
-				backslashCount := 0
-				for j := i - 1; j >= 0 && line[j] == '\\'; j-- {
-					backslashCount++
-				}
-				if backslashCount%2 == 0 {
+			if !inDoubleQuote && !inBacktick && (stringType == StringTypeAll || stringType == StringTypeQuote) {
+				if !isEscaped(line, i) {
 					inSingleQuote = !inSingleQuote
 				}
 			}
 		case '"':
-			if !inSingleQuote {
-				// 检查是否被转义
-				backslashCount := 0
-				for j := i - 1; j >= 0 && line[j] == '\\'; j-- {
-					backslashCount++
-				}
-				if backslashCount%2 == 0 {
+			if !inSingleQuote && !inBacktick && (stringType == StringTypeAll || stringType == StringTypeQuote) {
+				if !isEscaped(line, i) {
 					inDoubleQuote = !inDoubleQuote
 				}
+			}
+		case '`':
+			if !inSingleQuote && !inDoubleQuote && (stringType == StringTypeAll || stringType == StringTypeBacktick) {
+				inBacktick = !inBacktick
 			}
 		}
 	}
 	
-	return inSingleQuote || inDoubleQuote
+	switch stringType {
+	case StringTypeQuote:
+		return inSingleQuote || inDoubleQuote
+	case StringTypeBacktick:
+		return inBacktick
+	default: // StringTypeAll
+		return inSingleQuote || inDoubleQuote || inBacktick
+	}
+}
+
+// isEscaped 检查字符是否被转义
+func isEscaped(line string, pos int) bool {
+	if pos == 0 {
+		return false
+	}
+	
+	backslashCount := 0
+	for i := pos - 1; i >= 0 && line[i] == '\\'; i-- {
+		backslashCount++
+	}
+	// 奇数个反斜杠表示当前字符被转义
+	return backslashCount%2 == 1
+}
+
+// 保留原有函数名作为兼容性包装
+func isInQuoteString(line string, pos int) bool {
+	return isInStringWithType(line, pos, StringTypeQuote)
+}
+
+func isInAnyString(line string, pos int) bool {
+	return isInStringWithType(line, pos, StringTypeAll)
+}
+
+func isInString(line string, pos int) bool {
+	return isInStringWithType(line, pos, StringTypeAll)
 }
 
 // isInRegex 检查指定位置是否在正则表达式内
@@ -1430,32 +1388,22 @@ func isInRegex(line string, pos int) bool {
 		return false
 	}
 	
-	lineBytes := []byte(line)
 	var inSingleQuote, inDoubleQuote, inBacktick bool
 	var inRegex bool
 	
-	for i := 0; i < pos && i < len(lineBytes); i++ {
-		char := lineBytes[i]
+	for i := 0; i < pos; i++ {
+		char := line[i]
 		
-		// 跳过字符串内的内容
 		switch char {
 		case '\'':
 			if !inDoubleQuote && !inBacktick && !inRegex {
-				backslashCount := 0
-				for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
-					backslashCount++
-				}
-				if backslashCount%2 == 0 {
+				if !isEscaped(line, i) {
 					inSingleQuote = !inSingleQuote
 				}
 			}
 		case '"':
 			if !inSingleQuote && !inBacktick && !inRegex {
-				backslashCount := 0
-				for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
-					backslashCount++
-				}
-				if backslashCount%2 == 0 {
+				if !isEscaped(line, i) {
 					inDoubleQuote = !inDoubleQuote
 				}
 			}
@@ -1466,32 +1414,24 @@ func isInRegex(line string, pos int) bool {
 		case '/':
 			if !inSingleQuote && !inDoubleQuote && !inBacktick {
 				if inRegex {
-					// 检查是否是正则表达式结束
-					backslashCount := 0
-					for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
-						backslashCount++
-					}
-					if backslashCount%2 == 0 {
+					if !isEscaped(line, i) {
 						inRegex = false
 					}
 				} else {
 					// 检查是否是正则表达式开始
 					if i > 0 {
-						// 向前查找非空白字符
 						j := i - 1
-						for j >= 0 && (lineBytes[j] == ' ' || lineBytes[j] == '\t') {
+						for j >= 0 && (line[j] == ' ' || line[j] == '\t') {
 							j--
 						}
 						if j >= 0 {
-							prevChar := lineBytes[j]
-							// 正则表达式通常出现在这些字符之后
+							prevChar := line[j]
 							if prevChar == '=' || prevChar == '(' || prevChar == ',' || prevChar == ':' || 
 							   prevChar == '[' || prevChar == '{' || prevChar == ';' {
 								inRegex = true
 							}
 						}
 					} else {
-						// 行首的/可能是正则表达式
 						inRegex = true
 					}
 				}
@@ -1500,60 +1440,6 @@ func isInRegex(line string, pos int) bool {
 	}
 	
 	return inRegex
-}
-
-// isInString 检查指定位置是否在字符串字面量内（优化版本）
-func isInString(line string, pos int) bool {
-	if pos >= len(line) {
-		return false
-	}
-	
-	var inSingleQuote, inDoubleQuote, inBacktick bool
-	
-	// 优化：使用字节切片避免重复的字符串索引
-	lineBytes := []byte(line)
-	
-	for i := 0; i <= pos && i < len(lineBytes); i++ {
-		char := lineBytes[i]
-		
-		switch char {
-		case '\'':
-			if !inDoubleQuote && !inBacktick {
-				// 优化：直接计算反斜杠数量，避免重复循环
-				backslashCount := 0
-				for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
-					backslashCount++
-				}
-				// 如果反斜杠数量为偶数，引号未被转义
-				if backslashCount%2 == 0 {
-					inSingleQuote = !inSingleQuote
-				}
-			}
-		case '"':
-			if !inSingleQuote && !inBacktick {
-				// 优化：直接计算反斜杠数量，避免重复循环
-				backslashCount := 0
-				for j := i - 1; j >= 0 && lineBytes[j] == '\\'; j-- {
-					backslashCount++
-				}
-				// 如果反斜杠数量为偶数，引号未被转义
-				if backslashCount%2 == 0 {
-					inDoubleQuote = !inDoubleQuote
-				}
-			}
-		case '`':
-			if !inSingleQuote && !inDoubleQuote {
-				inBacktick = !inBacktick
-			}
-		}
-		
-		// 如果我们已经到达目标位置，返回当前状态
-		if i == pos {
-			return inSingleQuote || inDoubleQuote || inBacktick
-		}
-	}
-	
-	return inSingleQuote || inDoubleQuote || inBacktick
 }
 
 // processFile 处理单个文件，删除其中的注释

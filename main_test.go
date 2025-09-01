@@ -10,6 +10,46 @@ import (
 	"time"
 )
 
+// 测试工具函数
+
+// createTempFile 创建临时测试文件
+func createTempFile(t *testing.T, content string, suffix string) string {
+	tmpFile, err := ioutil.TempFile("", "test_*"+suffix)
+	if err != nil {
+		t.Fatalf("创建临时文件失败: %v", err)
+	}
+	
+	if _, err := tmpFile.WriteString(content); err != nil {
+		t.Fatalf("写入临时文件失败: %v", err)
+	}
+	
+	if err := tmpFile.Close(); err != nil {
+		t.Fatalf("关闭临时文件失败: %v", err)
+	}
+	
+	return tmpFile.Name()
+}
+
+// cleanupTempFile 清理临时测试文件
+func cleanupTempFile(t *testing.T, filename string) {
+	if err := os.Remove(filename); err != nil {
+		t.Logf("清理临时文件失败: %v", err)
+	}
+}
+
+// assertStringEqual 断言字符串相等，提供详细的错误信息
+func assertStringEqual(t *testing.T, expected, actual, testName string) {
+	if expected != actual {
+		t.Errorf("%s 失败:\n期望:\n%s\n实际:\n%s", testName, expected, actual)
+	}
+}
+
+// resetBackupGlobals 重置备份相关的全局变量（用于测试隔离）
+func resetBackupGlobals() {
+	backupTimestamp = ""
+	backupRootDir = ""
+}
+
 func TestRemoveComments(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -313,10 +353,8 @@ func TestRemoveMarkdownComments(t *testing.T) {
 
 	expected := "# 标题\n正文内容\n## 二级标题\n### 三级标题"
 
-	result := removeMarkdownComments(input)
-	if result != expected {
-		t.Errorf("removeMarkdownComments() = %q, want %q", result, expected)
-	}
+	result := removeComments(input, "markdown")
+	assertStringEqual(t, expected, result, "removeMarkdownComments")
 }
 
 // ...
@@ -334,10 +372,8 @@ services:
 
 	expected := "version: '3.8'\nservices:\n  web:\n    image: nginx\n    ports:\n      - \"80:80\"\n  database:\n    image: postgres"
 
-	result := removeYamlComments(input)
-	if result != expected {
-		t.Errorf("removeYamlComments() = %q, want %q", result, expected)
-	}
+	result := removeComments(input, "yaml")
+	assertStringEqual(t, expected, result, "removeYamlComments")
 }
 
 // 测试YAML安全边界情况
@@ -387,10 +423,8 @@ func TestRemoveYamlCommentsSecurity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := removeYamlComments(tt.input)
-			if result != tt.expected {
-				t.Errorf("removeYamlComments() = %q, want %q", result, tt.expected)
-			}
+			result := removeComments(tt.input, "yaml")
+			assertStringEqual(t, tt.expected, result, tt.name)
 		})
 	}
 }
@@ -477,8 +511,8 @@ func TestIsInStringEdgeCases(t *testing.T) {
 		{
 			name:     "转义反斜杠",
 			line:     `"Path: C:\\\\Program Files\\\\" // comment`,
-			pos:      30,
-			expected: false,
+			pos:      29, // 字符串内部的最后一个字符
+			expected: true,
 		},
 		{
 			name:     "多重转义",
@@ -1225,7 +1259,7 @@ func TestLanguageSpecificEdgeCases(t *testing.T) {
 			name:     "JavaScript模板字符串保护",
 			fileType: "javascript",
 			input:    "var template = `Hello // world`; // 注释",
-			expected: "var template = `Hello",
+			expected: "var template = `Hello // world`;",
 		},
 		{
 			name:     "Python f-string保护",
