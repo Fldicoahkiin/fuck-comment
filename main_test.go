@@ -1431,3 +1431,209 @@ func TestStringProtectionEdgeCases(t *testing.T) {
 		})
 	}
 }
+
+// TestAllLanguageCommentRemoval 测试所有支持语言的注释删除功能
+func TestAllLanguageCommentRemoval(t *testing.T) {
+	tests := []struct {
+		fileType string
+		input    string
+		expected string
+		name     string
+	}{
+		// C风格语言 (// 和 /* */)
+		{"c", "int x = 5; // comment", "int x = 5;", "C语言行注释"},
+		{"cpp", "int x = 5; /* comment */", "int x = 5; ", "C++块注释"},
+		{"java", "String s = \"test\"; // comment", "String s = \"test\";", "Java行注释"},
+		{"cs", "var x = 5; // comment", "var x = 5;", "C#行注释"},
+		{"javascript", "let x = 5; // comment", "let x = 5;", "JavaScript行注释"},
+		{"typescript", "const x: number = 5; // comment", "const x: number = 5;", "TypeScript行注释"},
+		{"go", "x := 5 // comment", "x := 5", "Go语言行注释"},
+		{"rust", "let x = 5; // comment", "let x = 5;", "Rust行注释"},
+		{"swift", "let x = 5 // comment", "let x = 5", "Swift行注释"},
+		{"dart", "int x = 5; // comment", "int x = 5;", "Dart行注释"},
+		{"scala", "val x = 5 // comment", "val x = 5", "Scala行注释"},
+		{"kt", "val x = 5 // comment", "val x = 5", "Kotlin行注释"},
+		{"groovy", "def x = 5 // comment", "def x = 5", "Groovy行注释"},
+		
+		// 井号注释语言 (#)
+		{"python", "x = 5 # comment", "x = 5", "Python井号注释"},
+		{"ruby", "x = 5 # comment", "x = 5", "Ruby井号注释"},
+		{"shell", "echo hello # comment", "echo hello", "Shell井号注释"},
+		{"bash", "echo hello # comment", "echo hello", "Bash井号注释"},
+		{"perl", "my $x = 5; # comment", "my $x = 5;", "Perl井号注释"},
+		{"r", "x <- 5 # comment", "x <- 5", "R语言井号注释"},
+		{"tcl", "set x 5 # comment", "set x 5", "Tcl井号注释"},
+		
+		// 双破折号语言 (--)
+		{"sql", "SELECT * FROM users -- comment", "SELECT * FROM users", "SQL双破折号注释"},
+		{"haskell", "x = 5 -- comment", "x = 5", "Haskell双破折号注释"},
+		{"lua", "local x = 5 -- comment", "local x = 5", "Lua双破折号注释"},
+		
+		// 百分号注释语言 (%)
+		{"matlab", "x = 5; % comment", "x = 5;", "MATLAB百分号注释"},
+		{"latex", "\\section{Title} % comment", "\\section{Title}", "LaTeX百分号注释"},
+		
+		// 分号注释语言 (;)
+		{"assembly", "mov eax, 5 ; comment", "mov eax, 5", "Assembly分号注释"},
+		
+		// 感叹号注释语言 (!)
+		{"fortran", "x = 5 ! comment", "x = 5", "Fortran感叹号注释"},
+		
+		// 特殊语言
+		{"php", "<?php $x = 5; // comment", "<?php $x = 5;", "PHP行注释"},
+		{"css", "body { color: red; /* comment */ }", "body { color: red;  }", "CSS块注释"},
+		{"xml", "<root><!-- comment --></root>", "<root></root>", "XML注释"},
+		{"html", "<div><!-- comment --></div>", "<div></div>", "HTML注释"},
+		{"yaml", "key: value # comment", "key: value", "YAML井号注释"},
+		{"json", "{ \"key\": \"value\" } // comment", "{ \"key\": \"value\" }", "JSON行注释"},
+		
+		// Shader文件测试
+		{"c", "Shader \"Test\" { \".shader\": true, // comment }", "Shader \"Test\" { \".shader\": true,", "Shader文件注释"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := removeComments(tt.input, tt.fileType)
+			if result != tt.expected {
+				t.Errorf("语言 %s: 期望 %q, 得到 %q", tt.fileType, tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestLanguageDetection 测试文件类型检测
+func TestLanguageDetection(t *testing.T) {
+	tests := []struct {
+		filename string
+		expected string
+		name     string
+	}{
+		{"test.c", "c", "C文件检测"},
+		{"test.cpp", "cpp", "C++文件检测"},
+		{"test.java", "java", "Java文件检测"},
+		{"test.py", "py", "Python文件检测"},
+		{"test.js", "js", "JavaScript文件检测"},
+		{"test.go", "go", "Go文件检测"},
+		{"test.rs", "rust", "Rust文件检测"},
+		{"test.php", "php", "PHP文件检测"},
+		{"test.rb", "rb", "Ruby文件检测"},
+		{"test.sh", "sh", "Shell文件检测"},
+		{"test.sql", "sql", "SQL文件检测"},
+		{"test.css", "css", "CSS文件检测"},
+		{"test.html", "xml", "HTML文件检测"},
+		{"test.xml", "xml", "XML文件检测"},
+		{"test.yaml", "yaml", "YAML文件检测"},
+		{"test.json", "json", "JSON文件检测"},
+		{"test.md", "markdown", "Markdown文件检测"},
+		{"test.shader", "c", "Shader文件检测"},
+		{"test.hlsl", "c", "HLSL文件检测"},
+		{"test.glsl", "c", "GLSL文件检测"},
+		{"test.asm", "asm", "Assembly文件检测"},
+		{"test.s", "unknown", "Assembly S文件检测"},
+		{"test.f", "unknown", "Fortran文件检测"},
+		{"test.f90", "f90", "Fortran90文件检测"},
+		{"test.pas", "pas", "Pascal文件检测"},
+		{"test.ada", "ada", "Ada文件检测"},
+		{"test.pl", "unknown", "Perl文件检测"},
+		{"test.lua", "lua", "Lua文件检测"},
+		{"test.tcl", "tcl", "Tcl文件检测"},
+		{"test.hs", "hs", "Haskell文件检测"},
+		{"test.elm", "elm", "Elm文件检测"},
+		{"test.ml", "ml", "OCaml文件检测"},
+		{"test.fs", "fs", "F#文件检测"},
+		{"test.clj", "clj", "Clojure文件检测"},
+		{"test.scm", "scm", "Scheme文件检测"},
+		{"test.lisp", "lisp", "Lisp文件检测"},
+		{"test.jl", "jl", "Julia文件检测"},
+		{"test.nb", "nb", "Mathematica文件检测"},
+		{"test.vue", "vue", "Vue文件检测"},
+		{"test.svelte", "svelte", "Svelte文件检测"},
+		{"test.scss", "css", "SCSS文件检测"},
+		{"test.sass", "css", "Sass文件检测"},
+		{"test.less", "css", "Less文件检测"},
+		{"test.tex", "tex", "LaTeX文件检测"},
+		{"test.rst", "rst", "reStructuredText文件检测"},
+		{"test.toml", "toml", "TOML文件检测"},
+		{"test.ini", "ini", "INI文件检测"},
+		{"test.cfg", "cfg", "Config文件检测"},
+		{"test.conf", "conf", "Conf文件检测"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := detectFileType(tt.filename)
+			if result != tt.expected {
+				t.Errorf("文件 %s: 期望类型 %q, 得到 %q", tt.filename, tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestComprehensiveEdgeCases 测试所有语言的边界情况
+func TestComprehensiveEdgeCases(t *testing.T) {
+	tests := []struct {
+		fileType string
+		input    string
+		expected string
+		name     string
+	}{
+		// 字符串保护测试
+		{"c", "printf(\"// not comment\"); // real comment", "printf(\"// not comment\");", "C语言字符串保护"},
+		{"python", "print(\"# not comment\") # real comment", "print(\"# not comment\")", "Python字符串保护"},
+		{"sql", "SELECT '-- not comment' -- real comment", "SELECT '-- not comment'", "SQL字符串保护"},
+		{"javascript", "console.log('/* not comment */'); // real", "console.log('/* not comment */');", "JavaScript字符串保护"},
+		{"php", "echo \"// not comment\"; // real comment", "echo \"// not comment\";", "PHP字符串保护"},
+		{"ruby", "puts '# not comment' # real comment", "puts '# not comment'", "Ruby字符串保护"},
+		{"shell", "echo '# not comment' # real comment", "echo '# not comment'", "Shell字符串保护"},
+		{"css", "content: '/* not comment */'; /* real comment */", "content: '/* not comment */'; /* real comment */", "CSS字符串保护"},
+		
+		// 多行注释测试
+		{"c", "int x; /* multi\nline */ int y;", "int x; \n int y;", "C语言多行注释"},
+		{"css", "body { /* multi\nline */ color: red; }", "body { \n color: red; }", "CSS多行注释"},
+		{"lua", "x = 1 --[[ multi\nline ]] y = 2", "x = 1\nline ]] y = 2", "Lua多行注释"},
+		{"haskell", "x = 5 {- multi\nline -} y = 6", "x = 5 \n y = 6", "Haskell多行注释"},
+		{"matlab", "x = 5; %{ multi\nline %} y = 6;", "x = 5;\nline", "MATLAB多行注释"},
+		
+		// 空行处理测试
+		{"go", "package main\n// comment\nfunc main() {}", "package main\nfunc main() {}", "Go语言空行处理"},
+		{"python", "def func():\n    # comment\n    pass", "def func():\n    pass", "Python空行处理"},
+		{"java", "class Test {\n    // comment\n    int x;\n}", "class Test {\n    int x;\n}", "Java空行处理"},
+		
+		// 行尾注释测试
+		{"java", "int x = 5; // comment\nint y = 6;", "int x = 5;\nint y = 6;", "Java行尾注释"},
+		{"shell", "echo hello # comment\necho world", "echo hello\necho world", "Shell行尾注释"},
+		{"python", "x = 5 # comment\ny = 6", "x = 5\ny = 6", "Python行尾注释"},
+		{"c", "int x = 5; // comment\nint y = 6;", "int x = 5;\nint y = 6;", "C语言行尾注释"},
+		
+		// 复杂嵌套测试
+		{"javascript", "var s = \"/* not comment */\"; /* real comment */ var x = 5;", "var s = \"/* not comment */\"; /* real comment */ var x = 5;", "JavaScript复杂嵌套"},
+		{"python", "url = \"http://example.com#anchor\" # This is a comment", "url = \"http://example.com#anchor\"", "Python URL井号保护"},
+		{"sql", "SELECT 'Price: $5.00' -- This is money, not comment", "SELECT 'Price: $5.00'", "SQL特殊字符保护"},
+		
+		// 特殊语法保护
+		{"javascript", "var regex = /\\/\\*.*?\\*\\//g; // comment", "var regex = /\\/\\*.*?\\*\\//g;", "JavaScript正则表达式保护"},
+		{"shell", "VERSION=${GITHUB_REF#refs/tags/} # comment", "VERSION=${GITHUB_REF#refs/tags/}", "Shell变量展开保护"},
+		{"rust", "let raw = r\"This is // not a comment\"; // real comment", "let raw = r\"This is // not a comment\";", "Rust原始字符串保护"},
+		
+		// 边界情况
+		{"c", "// comment at start", "", "C语言行首注释"},
+		{"python", "# comment at start", "", "Python行首注释"},
+		{"sql", "-- comment at start", "", "SQL行首注释"},
+		{"assembly", "; comment at start", "", "Assembly行首注释"},
+		{"fortran", "! comment at start", "", "Fortran行首注释"},
+		{"matlab", "% comment at start", "", "MATLAB行首注释"},
+		
+		// 混合注释类型
+		{"php", "<?php\n// Line comment\n/* Block comment */ echo 'test'; # Hash comment", "<?php\n echo 'test'; # Hash comment", "PHP混合注释"},
+		{"assembly", "mov eax, 5 ; semicolon comment\n# hash comment\n// slash comment", "mov eax, 5", "Assembly混合注释"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := removeComments(tt.input, tt.fileType)
+			if result != tt.expected {
+				t.Errorf("测试 %s 失败:\n期望: %q\n得到: %q", tt.name, tt.expected, result)
+			}
+		})
+	}
+}

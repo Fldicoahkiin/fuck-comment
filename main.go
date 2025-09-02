@@ -409,6 +409,8 @@ func detectFileType(filePath string) string {
 		return "css"
 	case ".rs":
 		return "rust"
+	case ".shader", ".hlsl", ".glsl":
+		return "c"
 	default:
 		return ext[1:] // 去掉点号
 	}
