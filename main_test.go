@@ -1094,6 +1094,182 @@ func TestEdgeCasesAndBoundaries(t *testing.T) {
 	})
 }
 
+// TestGoTemplateLiteralFix 测试Go模板字符串外部注释的修复
+func TestGoTemplateLiteralFix(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "单行模板字符串外部注释应该被删除",
+			input:    "const template = `hello world`; // External comment",
+			expected: "const template = `hello world`;",
+		},
+		{
+			name:     "模板字符串内部注释应该保留",
+			input:    "const template = `\n  // This should be preserved\n  /* Also preserved */\n  ${variable}\n`; // External comment",
+			expected: "const template = `\n  // This should be preserved\n  /* Also preserved */\n  ${variable}\n`;",
+		},
+		{
+			name:     "多行模板字符串内部注释应该完全保留",
+			input:    "const template = `\n  // Internal comment\n  some code\n`;",
+			expected: "const template = `\n  // Internal comment\n  some code\n`;",
+		},
+		{
+			name:     "嵌套反引号的复杂情况",
+			input:    "const cmd = `echo 'test'`; // This is external",
+			expected: "const cmd = `echo 'test'`;",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rules := getCommentRulesForLanguage("go")
+			result := removeCommentsByRules(tt.input, "go", rules)
+			if result != tt.expected {
+				t.Errorf("期望: %q\n实际: %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestYAMLStructuralCommentsFix 测试YAML结构性注释的修复
+func TestYAMLStructuralCommentsFix(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name: "保留emoji标题注释",
+			input: `name: Build
+# 🚀 fuck-comment release
+version: 1.0`,
+			expected: `name: Build
+# 🚀 fuck-comment release
+version: 1.0`,
+		},
+		{
+			name: "保留markdown风格的节标题",
+			input: `jobs:
+  build:
+    # ## 构建步骤
+    runs-on: ubuntu-latest`,
+			expected: `jobs:
+  build:
+    # ## 构建步骤
+    runs-on: ubuntu-latest`,
+		},
+		{
+			name: "保留包含关键词的结构性注释",
+			input: `steps:
+  # 下载文件
+  - name: Download
+  # 安装依赖
+  - name: Install`,
+			expected: `steps:
+  # 下载文件
+  - name: Download
+  # 安装依赖
+  - name: Install`,
+		},
+		{
+			name: "删除普通行尾注释",
+			input: `name: test # this is a regular comment
+version: 1.0 # another comment`,
+			expected: `name: test
+version: 1.0`,
+		},
+		{
+			name: "保护Shell变量中的#",
+			input: `VERSION: ${GITHUB_REF#refs/tags/}
+BUILD_TIME: $(date)`,
+			expected: `VERSION: ${GITHUB_REF#refs/tags/}
+BUILD_TIME: $(date)`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rules := getCommentRulesForLanguage("yaml")
+			result := removeCommentsByRules(tt.input, "yaml", rules)
+			if result != tt.expected {
+				t.Errorf("期望:\n%s\n实际:\n%s", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestJavaScriptTemplateLiteralFix 测试JavaScript模板字符串的修复
+func TestJavaScriptTemplateLiteralFix(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "JavaScript模板字符串外部注释",
+			input:    "const html = `<div>content</div>`; // External comment",
+			expected: "const html = `<div>content</div>`;",
+		},
+		{
+			name:     "JavaScript模板字符串内部注释保留",
+			input:    "const code = `\n  // This is code comment\n  function test() {}\n`;",
+			expected: "const code = `\n  // This is code comment\n  function test() {}\n`;",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rules := getCommentRulesForLanguage("javascript")
+			result := removeCommentsByRules(tt.input, "javascript", rules)
+			if result != tt.expected {
+				t.Errorf("期望: %q\n实际: %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestEdgeCasesFixed 测试修复后的边缘情况
+func TestEdgeCasesFixed(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileType string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Go - 多个反引号的复杂情况",
+			fileType: "go",
+			input:    "cmd := `echo \\`nested\\``; // comment",
+			expected: "cmd := `echo \\`nested\\``;",
+		},
+		{
+			name:     "YAML - 混合emoji和文字的标题",
+			fileType: "yaml",
+			input:    "# 📦 下载和安装指南\nsteps: []",
+			expected: "# 📦 下载和安装指南\nsteps: []",
+		},
+		{
+			name:     "YAML - 普通注释应该被删除",
+			fileType: "yaml",
+			input:    "name: test\n# just a regular comment\nversion: 1.0",
+			expected: "name: test\nversion: 1.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rules := getCommentRulesForLanguage(tt.fileType)
+			result := removeCommentsByRules(tt.input, tt.fileType, rules)
+			if result != tt.expected {
+				t.Errorf("期望:\n%s\n实际:\n%s", tt.expected, result)
+			}
+		})
+	}
+}
+
 // TestAllSupportedLanguages 测试所有支持的语言都能正确删除注释
 func TestAllSupportedLanguages(t *testing.T) {
 	tests := []struct {

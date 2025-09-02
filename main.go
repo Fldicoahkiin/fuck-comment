@@ -618,23 +618,55 @@ func checkProtectionRules(ctx ProtectionContext) bool {
 		// C风格语言的通用保护已在通用规则中处理
 		break
 	case "yaml", "yml":
-		// 保护字符串中的#和Shell变量
 		if ctx.CommentStart == "#" {
-			// 保护字符串中的URL锚点
-			if isInAnyString(ctx.Line, ctx.Pos) && strings.Contains(ctx.Line[:ctx.Pos], "http") {
-				return true
-			}
-			// 保护Shell变量如 ${GITHUB_REF#refs/tags/}
-			if strings.Contains(ctx.Line[:ctx.Pos], "${") {
-				beforeComment := ctx.Line[:ctx.Pos]
-				if strings.Count(beforeComment, "{") > strings.Count(beforeComment, "}") {
-					return true
-				}
-			}
-			// 保护字符串内的任何#
+			beforeComment := ctx.Line[:ctx.Pos]
+			// 保护字符串内的#
 			if isInAnyString(ctx.Line, ctx.Pos) {
 				return true
 			}
+			
+			// 保护Shell变量展开中的#（如${VAR#pattern}）
+			if strings.Contains(beforeComment, "${") {
+				// 检查整行的Shell变量语法
+				fullLine := ctx.Line
+				openBraces := strings.Count(fullLine[:ctx.Pos], "{")
+				closeBraces := strings.Count(fullLine[:ctx.Pos], "}")
+				if openBraces > closeBraces {
+					// 检查#后面是否有}来确认这是Shell变量语法
+					afterHash := fullLine[ctx.Pos+1:]
+					if strings.Contains(afterHash, "}") {
+						return true
+					}
+				}
+			}
+			
+			// 保护URL中的锚点
+			if strings.Contains(beforeComment, "http") && strings.Contains(ctx.Line[ctx.Pos:], "#") {
+				return true
+			}
+			
+			// 保护行首注释（仅保护结构性注释）
+			if strings.TrimSpace(beforeComment) == "" {
+				// 检查是否为结构性注释
+				comment := strings.TrimSpace(ctx.Line[ctx.Pos:])
+				
+				// 保护markdown风格标题 (# ## ### 等)
+				if strings.HasPrefix(comment, "# #") || strings.HasPrefix(comment, "# ##") || strings.HasPrefix(comment, "# ###") ||
+				   strings.HasPrefix(comment, "## ") || strings.HasPrefix(comment, "### ") {
+					return true
+				}
+				
+				// 保护结构性注释的通用模式
+				if isStructuralComment(comment) {
+					return true
+				}
+				
+				// 其他行首注释不保护（普通注释）
+				return false
+			}
+			
+			// 对于行尾注释，只保护字符串内和特殊URL情况，不保护普通注释
+			return false
 		}
 	case "css", "scss", "sass", "less":
 		// CSS中保护URL和content属性中的注释符号
@@ -1014,13 +1046,15 @@ func getCommentRulesForLanguage(fileType string) []CommentRule {
 		return hashStyleRules // 默认使用井号注释
 	}
 }
-
 // removeCommentsByRules 根据注释规则删除注释
 func removeCommentsByRules(content string, fileType string, rules []CommentRule) string {
 	lines := strings.Split(content, "\n")
 	var result []string
-	inBlockComment := false
-	inMultiLineString := false
+	var inBlockComment bool
+	var inMultiLineString bool
+	var inBacktickString bool
+	inYAMLMultiLineBlock := false
+	yamlBlockIndent := 0
 	var blockEndPattern string
 
 	for _, line := range lines {
@@ -1033,70 +1067,76 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 			continue
 		}
 		
-		// 检查多行字符串状态
-		if fileType == "go" || fileType == "javascript" || fileType == "typescript" {
-			// 检查反引号字符串，需要考虑转义
+		// YAML多行字符串块检测
+		if fileType == "yaml" || fileType == "yml" {
+			trimmedLine := strings.TrimSpace(line)
+			currentIndent := len(line) - len(strings.TrimLeft(line, " \t"))
+			
+			// 检测多行字符串块开始 (|, >, |-, >-)
+			if strings.Contains(line, ": |") || strings.Contains(line, ": >") || 
+			   strings.Contains(line, ": |-") || strings.Contains(line, ": >-") {
+				inYAMLMultiLineBlock = true
+				yamlBlockIndent = currentIndent
+			} else if inYAMLMultiLineBlock {
+				// 检查是否退出多行字符串块
+				if trimmedLine != "" && currentIndent <= yamlBlockIndent {
+					inYAMLMultiLineBlock = false
+				}
+			}
+			
+			// 如果在YAML多行字符串块中，保护所有内容
+			if inYAMLMultiLineBlock {
+				result = append(result, originalLine)
+				continue
+			}
+		}
+		
+		// 检查多行字符串状态 - 在处理注释之前更新状态
+		oldMultiLineState := inMultiLineString
+		oldBacktickState := inBacktickString
+		
+		// 跟踪反引号字符串状态（用于Go/JS/TS模板字符串）
+		if fileType == "go" || fileType == "js" || fileType == "ts" || fileType == "jsx" || fileType == "tsx" || fileType == "javascript" {
+			backtickCount := 0
 			for i := 0; i < len(line); i++ {
 				if line[i] == '`' && !isEscaped(line, i) {
-					inMultiLineString = !inMultiLineString
+					backtickCount++
 				}
 			}
-		} else if fileType == "python" || fileType == "py" {
-			// 检查Python三引号字符串
-			// 先处理可能在同一行结束的三引号字符串
+			if backtickCount%2 == 1 {
+				inBacktickString = !inBacktickString
+			}
+		}
+		
+		// Python docstring 处理
+		if fileType == "python" || fileType == "py" {
 			tempInMultiLine := inMultiLineString
-			
-			// 处理单行docstring（在同一行开始和结束的三引号字符串）
 			singleLineDocstring := false
-			if strings.Contains(line, `"""`) {
-				// 检查是否是单行docstring
-				firstTriple := strings.Index(line, `"""`)
-				if firstTriple != -1 {
-					remaining := line[firstTriple+3:]
-					secondTriple := strings.Index(remaining, `"""`)
-					if secondTriple != -1 {
-						// 单行docstring，处理后面的注释
-						endPos := firstTriple + 3 + secondTriple + 3
-						if endPos < len(line) {
-							beforeEnd := line[:endPos]
-							afterEnd := line[endPos:]
-							// 删除docstring后的注释
-							if pos := strings.Index(afterEnd, "#"); pos != -1 {
-								afterEnd = strings.TrimRight(afterEnd[:pos], " \t")
-							}
-							processedLine = beforeEnd + afterEnd
-							singleLineDocstring = true
-						} else {
-							// 单行docstring占据整行，不影响多行状态
-							singleLineDocstring = true
-						}
-					}
-				}
-				
-				if !singleLineDocstring {
-					// 计算不在字符串内的三引号数量
-					count := 0
-					for i := 0; i <= len(line)-3; i++ {
-						if line[i:i+3] == `"""` && !isInQuoteString(line, i) {
-							count++
-							if count%2 == 1 {
-								tempInMultiLine = !tempInMultiLine
-							}
-							i += 2 // 跳过这个三引号
-						}
-					}
-				}
-			}
 			
-			if !singleLineDocstring && strings.Contains(line, "'''") {
-				// 检查是否是单行docstring
-				firstTriple := strings.Index(line, "'''")
-				if firstTriple != -1 {
-					remaining := line[firstTriple+3:]
-					secondTriple := strings.Index(remaining, "'''")
-					if secondTriple != -1 {
-						// 单行docstring，处理后面的注释
-						endPos := firstTriple + 3 + secondTriple + 3
+			// 检查是否有三引号
+			if strings.Contains(line, `"""`) || strings.Contains(line, "'''") {
+				// 检查单行docstring
+				if strings.Count(line, `"""`) >= 2 || strings.Count(line, "'''") >= 2 {
+					// 可能是单行docstring
+					startPos := -1
+					endPos := -1
+					quote := ""
+					
+					if pos := strings.Index(line, `"""`); pos != -1 {
+						startPos = pos
+						quote = `"""`
+					} else if pos := strings.Index(line, "'''"); pos != -1 {
+						startPos = pos
+						quote = "'''"
+					}
+					
+					if startPos != -1 {
+						// 查找结束位置
+						endPos = strings.Index(line[startPos+3:], quote)
+						if endPos != -1 {
+							endPos += startPos + 3 + 3 // 加上开始位置和三引号长度
+						}
+						
 						if endPos < len(line) {
 							beforeEnd := line[:endPos]
 							afterEnd := line[endPos:]
@@ -1158,39 +1198,47 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 			inMultiLineString = tempInMultiLine
 		}
 		
-		// 如果在多行字符串中，跳过注释处理
-		if inMultiLineString {
-			result = append(result, originalLine)
+		// 如果之前在多行字符串中，跳过注释处理
+		if oldMultiLineState {
+			result = append(result, processedLine)
 			continue
 		}
 		
-		// 检查这一行是否结束了模板字符串并有外部注释
-		if fileType == "go" || fileType == "javascript" || fileType == "typescript" {
-			// 查找反引号结束位置
-			lastBacktick := -1
-			for i := 0; i < len(line); i++ {
-				if line[i] == '`' && !isEscaped(line, i) {
-					lastBacktick = i
-				}
-			}
-			
-			// 如果找到反引号且后面有内容，处理外部注释
-			if lastBacktick != -1 && lastBacktick < len(line)-1 {
-				beforeEnd := line[:lastBacktick+1]
-				afterEnd := line[lastBacktick+1:]
-				
-				// 删除外部注释
-				for _, rule := range rules {
-					if rule.IsLineComment {
-						if pos := strings.Index(afterEnd, rule.StartPattern); pos != -1 {
-							afterEnd = strings.TrimRight(afterEnd[:pos], " \t")
-							break
-						}
+		// 如果之前在反引号字符串中但现在不在，说明模板字符串结束了，需要处理外部注释
+		if oldBacktickState && !inBacktickString {
+			// 这行包含了模板字符串的结束，检查外部注释
+			if strings.Contains(line, "`") {
+				lastBacktick := -1
+				for i := len(line) - 1; i >= 0; i-- {
+					if line[i] == '`' && !isEscaped(line, i) {
+						lastBacktick = i
+						break
 					}
 				}
 				
-				processedLine = beforeEnd + afterEnd
+				if lastBacktick != -1 && lastBacktick < len(line)-1 {
+					afterBacktick := line[lastBacktick+1:]
+					
+					// 检查是否有注释符号
+					for _, rule := range rules {
+						if rule.IsLineComment {
+							if pos := strings.Index(afterBacktick, rule.StartPattern); pos != -1 {
+								// 找到外部注释，删除它
+								beforeEnd := line[:lastBacktick+1]
+								afterEnd := afterBacktick[:pos]
+								processedLine = beforeEnd + strings.TrimRight(afterEnd, " \t")
+								break
+							}
+						}
+					}
+				}
 			}
+		}
+		
+		// 如果当前在反引号字符串中，跳过注释处理
+		if inBacktickString {
+			result = append(result, originalLine)
+			continue
 		}
 		
 		
@@ -1222,20 +1270,54 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 			if rule.IsLineComment {
 				// 处理行注释：需要找到第一个不在字符串内的注释符号
 				pos := -1
-				for i := 0; i <= len(processedLine)-len(rule.StartPattern); i++ {
-					if strings.HasPrefix(processedLine[i:], rule.StartPattern) {
-						// 检查是否在字符串内（包括原始字符串和正则表达式）
-						if !isInAnyString(originalLine, i) && !isInRegex(originalLine, i) {
-							// 检查是否需要保护
-							if !shouldProtectInContext(originalLine, i, fileType, rule.StartPattern) {
-								pos = i
-								break
+				// YAML特殊处理：区分结构性注释和普通注释
+				if fileType == "yaml" || fileType == "yml" {
+					// 遍历所有可能的#位置
+					for i := 0; i <= len(processedLine)-len(rule.StartPattern); i++ {
+						if strings.HasPrefix(processedLine[i:], rule.StartPattern) {
+							// 检查是否在字符串内
+							if isInAnyString(processedLine, i) {
+								continue
+							}
+							
+							beforeComment := processedLine[:i]
+							// 如果#前只有空白字符，这是行首注释，检查是否为结构性注释
+							if strings.TrimSpace(beforeComment) == "" {
+								// 行首注释，检查是否需要保护（只保护结构性注释）
+								if shouldProtectInContext(originalLine, i, fileType, rule.StartPattern) {
+									pos = -1 // 保护结构性注释，不删除
+									break
+								} else {
+									pos = i // 删除普通注释
+									break
+								}
+							} else {
+								// 行尾注释，检查是否需要保护（Shell变量等）
+								if !shouldProtectInContext(originalLine, i, fileType, rule.StartPattern) {
+									pos = i
+									break
+								}
+							}
+						}
+					}
+				} else {
+					// 其他语言的原有逻辑
+					for i := 0; i <= len(processedLine)-len(rule.StartPattern); i++ {
+						if strings.HasPrefix(processedLine[i:], rule.StartPattern) {
+							// 检查是否在字符串内（包括原始字符串和正则表达式）
+							if !isInAnyString(originalLine, i) && !isInRegex(originalLine, i) {
+								// 检查是否需要保护
+								protected := shouldProtectInContext(originalLine, i, fileType, rule.StartPattern)
+								if !protected {
+									pos = i
+									break
+								}
 							}
 						}
 					}
 				}
+				// 如果找到了注释位置，处理注释删除
 				if pos != -1 {
-					// 保留注释前的内容，但不删除尾部空格（避免截断问题）
 					beforeComment := processedLine[:pos]
 					// 如果注释前只有空白字符，则整行都是注释
 					if strings.TrimSpace(beforeComment) == "" {
@@ -1299,9 +1381,8 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 				// 原始行就是空行，保留
 				finalResult = append(finalResult, line)
 			}
-			// 如果原始行不是空行，说明是注释被删除后产生的空行，不保留
 		} else {
-			// 非空行直接添加
+			// 非空行，直接保留
 			finalResult = append(finalResult, line)
 		}
 	}
@@ -1389,6 +1470,83 @@ func isEscaped(line string, pos int) bool {
 	}
 	// 奇数个反斜杠表示当前字符被转义
 	return backslashCount%2 == 1
+}
+
+// isStructuralComment 检查是否为结构性注释（通用模式）
+func isStructuralComment(comment string) bool {
+	// 去掉注释符号，获取纯内容
+	content := strings.TrimSpace(strings.TrimPrefix(comment, "#"))
+	
+	// 空注释或只有符号的注释不是结构性的
+	if len(content) == 0 {
+		return false
+	}
+	
+	// 排除明显的普通注释模式
+	commonPhrases := []string{"这是", "这个", "用于", "表示", "注释", "说明"}
+	for _, phrase := range commonPhrases {
+		if strings.Contains(content, phrase) {
+			return false
+		}
+	}
+	
+	// 1. 包含emoji的注释通常是结构性的
+	if containsEmoji(content) {
+		return true
+	}
+	
+	// 2. 包含分隔符的注释通常是结构性的
+	separators := []string{"===", "---", "***", "###", "+++", "~~~"}
+	for _, sep := range separators {
+		if strings.Contains(content, sep) {
+			return true
+		}
+	}
+	
+	// 3. 以数字开头的注释通常是步骤或列表项
+	if len(content) > 0 && (content[0] >= '0' && content[0] <= '9') {
+		return true
+	}
+	
+	// 4. 短且包含特殊字符的通常是结构性的
+	if len(content) <= 15 {
+		specialChars := []string{"→", "•", "★", "▶", "◆", "■", "▲", "►"}
+		for _, char := range specialChars {
+			if strings.Contains(content, char) {
+				return true
+			}
+		}
+	}
+	
+	// 5. 全大写且较短的注释通常是标题
+	if strings.ToUpper(content) == content && len(content) > 2 && len(content) <= 20 {
+		// 排除常见的普通注释词汇
+		commonWords := []string{"TODO", "FIXME", "HACK", "NOTE", "WARNING"}
+		for _, word := range commonWords {
+			if strings.Contains(content, word) {
+				return false
+			}
+		}
+		return true
+	}
+	
+	return false
+}
+
+// containsEmoji 检查字符串是否包含emoji
+func containsEmoji(s string) bool {
+	for _, r := range s {
+		// 检查常见的emoji范围
+		if (r >= 0x1F600 && r <= 0x1F64F) || // 表情符号
+		   (r >= 0x1F300 && r <= 0x1F5FF) || // 杂项符号
+		   (r >= 0x1F680 && r <= 0x1F6FF) || // 交通和地图符号
+		   (r >= 0x2600 && r <= 0x26FF) ||   // 杂项符号
+		   (r >= 0x2700 && r <= 0x27BF) ||   // 装饰符号
+		   (r >= 0x1F900 && r <= 0x1F9FF) {  // 补充符号
+			return true
+		}
+	}
+	return false
 }
 
 // 保留原有函数名作为兼容性包装
