@@ -1094,6 +1094,37 @@ func TestEdgeCasesAndBoundaries(t *testing.T) {
 	})
 }
 
+func TestBacktickCodeBlockProtection(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name: "字符串拼接中的反引号代码块保护",
+			input: `		"  ` + "`//`" + `         行注释 (C/C++, Go, Java, JavaScript等)\n" + // 这个注释应该被删除`,
+			expected: `		"  ` + "`//`" + `         行注释 (C/C++, Go, Java, JavaScript等)\n" +`,
+		},
+		{
+			name: "多个反引号代码块保护",
+			input: `		"  ` + "`/* */`" + `      块注释和` + "`//`" + `行注释\n" + // 外部注释`,
+			expected: `		"  ` + "`/* */`" + `      块注释和` + "`//`" + `行注释\n" +`,
+		},
+		{
+			name: "单行反引号保护",
+			input: "fmt.Printf(\"`//` 这是行注释\") // 这个注释应该被删除",
+			expected: "fmt.Printf(\"`//` 这是行注释\")",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := removeComments(test.input, "go")
+			assertStringEqual(t, test.expected, result, test.name)
+		})
+	}
+}
+
 // TestGoTemplateLiteralFix 测试Go模板字符串外部注释的修复
 func TestGoTemplateLiteralFix(t *testing.T) {
 	tests := []struct {

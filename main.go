@@ -615,6 +615,32 @@ func shouldProtectInContext(line string, pos int, fileType string, commentStart 
 func checkProtectionRules(ctx ProtectionContext) bool {
 	switch ctx.FileType {
 	case "c", "cpp", "cc", "cxx", "h", "hpp", "java", "javascript", "js", "typescript", "ts", "go", "rust", "rs", "php", "swift", "kotlin", "scala", "dart", "cs":
+		// 保护反引号代码块中的注释符号
+		if isInStringWithType(ctx.Line, ctx.Pos, StringTypeBacktick) {
+			return true
+		}
+		
+		// 特殊处理：检查是否在字符串拼接中的反引号代码块内
+		if ctx.FileType == "go" && (ctx.CommentStart == "//" || ctx.CommentStart == "/*") {
+			beforeComment := ctx.Line[:ctx.Pos]
+			// 检查当前行是否包含反引号且在字符串拼接中
+			if strings.Contains(beforeComment, "\"") && strings.Contains(beforeComment, "`") {
+				// 检查反引号是否在字符串内部
+				lastQuote := strings.LastIndex(beforeComment, "\"")
+				if lastQuote >= 0 {
+					afterQuote := beforeComment[lastQuote+1:]
+					// 如果在最后一个引号之后有反引号，说明可能在代码块内
+					if strings.Contains(afterQuote, "`") {
+						// 计算反引号数量，奇数表示在代码块内
+						backtickCount := strings.Count(afterQuote, "`")
+						if backtickCount%2 == 1 {
+							return true
+						}
+					}
+				}
+			}
+		}
+		
 		// C风格语言的通用保护已在通用规则中处理
 		break
 	case "yaml", "yml":
