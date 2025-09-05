@@ -286,6 +286,8 @@ func detectFileType(filePath string) string {
 		return detectProFileType(filePath)
 	case ".pl":
 		return detectPlFileType(filePath)
+	case ".v":
+		return detectVFileType(filePath)
 	case ".md", ".markdown":
 		return "markdown"
 	case ".yml", ".yaml":
@@ -476,11 +478,15 @@ func detectVFileType(filePath string) string {
 		return "unknown"
 	}
 	
-	if strings.Contains(string(content), "module") || strings.Contains(string(content), "endmodule") {
+	contentStr := strings.ToLower(string(content))
+	
+	// Verilog 关键字
+	if strings.Contains(contentStr, "module") || strings.Contains(contentStr, "endmodule") ||
+		strings.Contains(contentStr, "wire") || strings.Contains(contentStr, "reg") {
 		return "verilog"
 	}
 	
-	return "unknown"
+	return "verilog"
 }
 
 // isSupportedFile 检查文件是否为支持的类型

@@ -66,7 +66,7 @@ func processFile(filePath, workingDir string) error {
 	if originalContent == processedContent {
 		// 无变化，不需要备份和写入
 		relPath, _ := filepath.Rel(workingDir, filePath)
-		fmt.Printf("%s |%s| 无变化\n", relPath, strings.ToUpper(fileType))
+		fmt.Printf("%s "+ColorYellow+"|%s|"+ColorReset+" 无变化\n", relPath, strings.ToUpper(fileType))
 		return nil
 	}
 	
@@ -86,7 +86,7 @@ func processFile(filePath, workingDir string) error {
 	
 	// 显示处理结果
 	relPath, _ := filepath.Rel(workingDir, filePath)
-	fmt.Printf("%s |%s| ✓\n", relPath, strings.ToUpper(fileType))
+	fmt.Printf("%s "+ColorGreen+"|%s|"+ColorReset+" "+ColorGreen+"✓"+ColorReset+"\n", relPath, strings.ToUpper(fileType))
 	
 	return nil
 }
@@ -202,7 +202,7 @@ var rootCmd = &cobra.Command{
 				}
 			}
 			
-			fmt.Printf(ColorPurple+"扫描目录: %s\n"+ColorReset, targetDir)
+			fmt.Printf(ColorBold+ColorPurple+"扫描目录: %s\n"+ColorReset, targetDir)
 			if err := processDirectory(targetDir); err != nil {
 				printError("处理目录失败: %v", err)
 				os.Exit(1)

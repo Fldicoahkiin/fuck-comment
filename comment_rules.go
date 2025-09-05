@@ -376,7 +376,7 @@ func getCommentRulesForLanguage(fileType string) []CommentRule {
 		return cStyleRules
 	case "c", "cpp", "cc", "cxx", "h", "hpp":
 		return cStyleRules
-	case "java", "scala", "kotlin", "groovy":
+	case "java", "scala", "kotlin", "kt", "groovy":
 		return cStyleRules
 	case "rust", "rs", "swift", "dart", "cs":
 		return cStyleRules
@@ -446,6 +446,11 @@ func getCommentRulesForLanguage(fileType string) []CommentRule {
 	case "lisp", "lsp", "scm", "clj", "cljs":
 		return []CommentRule{
 			{StartPattern: ";", EndPattern: "", IsLineComment: true},
+		}
+	case "verilog", "v", "vh", "sv":
+		return []CommentRule{
+			{StartPattern: "//", EndPattern: "", IsLineComment: true},
+			{StartPattern: "/*", EndPattern: "*/", IsLineComment: false},
 		}
 	case "markdown", "md", "mdx":
 		return []CommentRule{
@@ -666,14 +671,10 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 					// 递归处理剩余内容
 					remaining := removeCommentsByRules(afterComment, fileType, rules)
 					result = append(result, remaining)
-				} else {
-					// 块注释结束后没有内容，这一行变成空行
-					result = append(result, "")
 				}
-			} else {
-				// 整行都在块注释中，这一行变成空行
-				result = append(result, "")
+				// 如果结束后没有内容，跳过这一行（不添加空行）
 			}
+			// 整行都在块注释中，跳过这一行（不添加空行）
 			continue
 		}
 		
@@ -753,20 +754,23 @@ func removeCommentsByRules(content string, fileType string, rules []CommentRule)
 							actualEndPos := pos + endPos + len(rule.EndPattern)
 							afterComment := processedLine[actualEndPos:]
 							
-							// 智能处理空格：只在需要时添加空格
-							needSpace := false
-							if len(beforeComment) > 0 && len(afterComment) > 0 {
-								lastCharBefore := beforeComment[len(beforeComment)-1]
-								firstCharAfter := afterComment[0]
-								if lastCharBefore != ' ' && lastCharBefore != '\t' && 
-								   firstCharAfter != ' ' && firstCharAfter != '\t' && firstCharAfter != '\n' {
-									needSpace = true
-								}
-							}
-							
+							// 对于XML/HTML注释，不添加额外空格
 							replacement := ""
-							if needSpace {
-								replacement = " "
+							if fileType != "xml" && fileType != "html" && fileType != "htm" {
+								// 智能处理空格：只在需要时添加空格
+								needSpace := false
+								if len(beforeComment) > 0 && len(afterComment) > 0 {
+									lastCharBefore := beforeComment[len(beforeComment)-1]
+									firstCharAfter := afterComment[0]
+									if lastCharBefore != ' ' && lastCharBefore != '\t' && 
+									   firstCharAfter != ' ' && firstCharAfter != '\t' && firstCharAfter != '\n' {
+										needSpace = true
+									}
+								}
+								
+								if needSpace {
+									replacement = " "
+								}
 							}
 							
 							processedLine = beforeComment + replacement + afterComment
